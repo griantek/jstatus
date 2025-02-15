@@ -486,12 +486,10 @@ async function handleScreenshotRequest(username, whatsappNumber) {
     // Clear any existing screenshots before starting
     screenshotManager.clear();
 
-    const encryptedUsername = encrypt(username);
-
     const rows = await new Promise((resolve, reject) => {
       db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ? OR Personal_Email = ?",
-        [encryptedUsername, encryptedUsername],
+        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ? OR (Client_Name IS NULL AND Personal_Email = ?)",
+        [username, username],
         (err, rows) => {
           if (err) reject(err);
           else resolve(rows);
@@ -791,12 +789,10 @@ app.post("/capture", async (req, res) => {
       });
     }
 
-    const encryptedUsername = encrypt(username);
-
     console.log("Querying database for user...");
     db.all(
-      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ? OR Personal_Email = ?",
-      [encryptedUsername, encryptedUsername],
+      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ? OR (Client_Name IS NULL AND Personal_Email = ?)",
+      [username, username],
       async (err, rows) => {
         if (err) {
           console.error("Database error:", err);
