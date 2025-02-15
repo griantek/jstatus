@@ -484,23 +484,38 @@ async function handleScreenshotRequest(username, whatsappNumber) {
   try {
     screenshotManager.clear();
 
-    console.log("Searching for:", username); // Add logging
+    console.log("Searching for:", username);
 
     const rows = await new Promise((resolve, reject) => {
-      const query = "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)";
-      console.log("Query:", query); // Add logging
-      console.log("Parameters:", [username, username]); // Add logging
-
-      db.all(query, [username, username],
-        (err, rows) => {
+      // First try to find by Personal_Email
+      db.all(
+        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
+        [username],
+        (err, emailRows) => {
           if (err) {
-            console.error("Database error:", err); // Add logging
             reject(err);
-          } else {
-            console.log("Query results:", rows); // Add logging
-            console.log("Number of rows found:", rows?.length); // Add logging
-            resolve(rows);
+            return;
           }
+
+          if (emailRows && emailRows.length > 0) {
+            console.log("Found by Personal_Email");
+            resolve(emailRows);
+            return;
+          }
+
+          // If no results by Personal_Email, try Client_Name
+          db.all(
+            "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
+            [username],
+            (err, clientRows) => {
+              if (err) {
+                reject(err);
+              } else {
+                console.log("Found by Client_Name");
+                resolve(clientRows);
+              }
+            }
+          );
         }
       );
     });
@@ -808,49 +823,38 @@ app.post("/capture", async (req, res) => {
     }
 
     console.log("Querying database for user...");
+    
+    // First try to find by Personal_Email
     db.all(
-      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)",
-      [username, username],
-      async (err, rows) => {
+      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
+      [username],
+      async (err, emailRows) => {
         if (err) {
           console.error("Database error:", err);
-          return res.status(500).json({ error: "An internal server error occurred while accessing the database." });
+          return res.status(500).json({ error: "Database error" });
         }
 
-        console.log("Query results:", rows); // Add logging
-        console.log("Number of rows found:", rows?.length); // Add logging
-
-        if (!rows || rows.length === 0) {
-          console.log("User not found in database.");
-          return res.status(404).json({ 
-            error: "Account not found",
-            message: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again."
-          });
+        if (emailRows && emailRows.length > 0) {
+          console.log("Found by Personal_Email");
+          // Process email matches
+          await processRows(emailRows, res);
+          return;
         }
 
-        let matches = rows.map(row => ({
-          url: row.url ? decrypt(row.url) : '',
-          username: row.username ? decrypt(row.username) : '',
-          password: row.password ? decrypt(row.password) : ''
-        })).filter(match => match.url && match.username && match.password);
+        // If no results by Personal_Email, try Client_Name
+        db.all(
+          "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
+          [username],
+          async (err, clientRows) => {
+            if (err) {
+              console.error("Database error:", err);
+              return res.status(500).json({ error: "Database error" });
+            }
 
-        if (matches.length === 0) {
-          console.log("Incomplete journal credentials found.");
-          return res.status(404).json({
-            error: "Incomplete credentials",
-            message: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance."
-          });
-        }
-
-        // Process each match
-        for (const [index, match] of matches.entries()) {
-          await handleJournal(match, index + 1, whatsappNumber);
-        }
-
-        res.status(200).json({ 
-          message: "Automation completed successfully for all links",
-          processedCount: matches.length
-        });
+            console.log("Found by Client_Name");
+            await processRows(clientRows, res);
+          }
+        );
       }
     );
   } catch (err) {
@@ -858,6 +862,39 @@ app.post("/capture", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// Helper function to process rows
+async function processRows(rows, res) {
+  if (!rows || rows.length === 0) {
+    return res.status(404).json({
+      error: "Account not found",
+      message: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again."
+    });
+  }
+
+  let matches = rows.map(row => ({
+    url: row.url ? decrypt(row.url) : '',
+    username: row.username ? decrypt(row.username) : '',
+    password: row.password ? decrypt(row.password) : ''
+  })).filter(match => match.url && match.username && match.password);
+
+  if (matches.length === 0) {
+    return res.status(404).json({
+      error: "Incomplete credentials",
+      message: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance."
+    });
+  }
+
+  // Process each match
+  for (const [index, match] of matches.entries()) {
+    await handleJournal(match, index + 1, whatsappNumber);
+  }
+
+  res.status(200).json({
+    message: "Automation completed successfully for all links",
+    processedCount: matches.length
+  });
+}
 
 // Function to automate the process for a given match
 const automateProcess = async (match, order, whatsappNumber) => {
