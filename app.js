@@ -44,6 +44,7 @@ const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
 const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 
 function decrypt(text) {
+  if (!text) return ''; // Return empty string if text is null/undefined
   let decipher = crypto.createDecipheriv(algorithm, key, iv);
   let decrypted = decipher.update(text, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
@@ -483,12 +484,11 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
 // Replace the existing handleScreenshotRequest function
 async function handleScreenshotRequest(username, whatsappNumber) {
   try {
-    // Clear any existing screenshots before starting
     screenshotManager.clear();
 
     const rows = await new Promise((resolve, reject) => {
       db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ? OR (Client_Name IS NULL AND Personal_Email = ?)",
+        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)",
         [username, username],
         (err, rows) => {
           if (err) reject(err);
@@ -502,7 +502,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         messaging_product: "whatsapp",
         to: whatsappNumber,
         type: "text",
-        text: { body: "User not found in database." }
+        text: { body: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again." }
       });
       return;
     }
@@ -512,10 +512,20 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
     // Process automation and generate new screenshots
     let matches = rows.map(row => ({
-      url: decrypt(row.url),
-      username: decrypt(row.username),
-      password: decrypt(row.password)
-    }));
+      url: row.url ? decrypt(row.url) : '',
+      username: row.username ? decrypt(row.username) : '',
+      password: row.password ? decrypt(row.password) : ''
+    })).filter(match => match.url && match.username && match.password); // Filter out incomplete entries
+
+    if (matches.length === 0) {
+      await sendWhatsAppMessage(whatsappNumber, {
+        messaging_product: "whatsapp",
+        to: whatsappNumber,
+        type: "text",
+        text: { body: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance." }
+      });
+      return;
+    }
 
     // Process each match (this will generate new screenshots)
     for (const [index, match] of matches.entries()) {
@@ -791,29 +801,34 @@ app.post("/capture", async (req, res) => {
 
     console.log("Querying database for user...");
     db.all(
-      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ? OR (Client_Name IS NULL AND Personal_Email = ?)",
+      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)",
       [username, username],
       async (err, rows) => {
         if (err) {
           console.error("Database error:", err);
-          return res.status(500).json({ error: "Database error" });
+          return res.status(500).json({ error: "An internal server error occurred while accessing the database." });
         }
 
         if (!rows || rows.length === 0) {
           console.log("User not found in database.");
-          return res.status(404).json({ error: "User not found in database" });
+          return res.status(404).json({ 
+            error: "Account not found",
+            message: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again."
+          });
         }
 
-        // Decrypt all rows without filtering
         let matches = rows.map(row => ({
-          url: decrypt(row.url),
-          username: decrypt(row.username),
-          password: decrypt(row.password)
-        }));
+          url: row.url ? decrypt(row.url) : '',
+          username: row.username ? decrypt(row.username) : '',
+          password: row.password ? decrypt(row.password) : ''
+        })).filter(match => match.url && match.username && match.password);
 
         if (matches.length === 0) {
-          console.log("No journal links found.");
-          return res.status(404).json({ error: "No journal links found" });
+          console.log("Incomplete journal credentials found.");
+          return res.status(404).json({
+            error: "Incomplete credentials",
+            message: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance."
+          });
         }
 
         // Process each match
