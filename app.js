@@ -613,6 +613,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       });
       return;
     }
+    console.log("Found account information:", rows);
 
     // Clear the set of new screenshots before processing
     newlyGeneratedScreenshots.clear();
