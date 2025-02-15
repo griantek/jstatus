@@ -107,7 +107,7 @@ const screenshotManager = {
 
   async init() {
     if (!fs.existsSync(this.baseFolder)) {
-      fs.mkdirSync(this.baseFolder);
+      fs.mkdirSync(this.baseFolder, { recursive: true });
     }
   },
 
@@ -138,9 +138,9 @@ const screenshotManager = {
   },
 
   async sendToWhatsApp(whatsappNumber, session = null) {
-    const screenshots = session ? session.screenshots : this.activeScreenshots;
+    const screenshots = session ? Array.from(session.screenshots) : Array.from(this.activeScreenshots);
     
-    if (screenshots.size === 0) {
+    if (screenshots.length === 0) {
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
         to: whatsappNumber,
@@ -152,14 +152,33 @@ const screenshotManager = {
 
     try {
       for (const screenshotPath of screenshots) {
-        const caption = `Status update: ${path.basename(screenshotPath, '.png')}`;
-        await sendWhatsAppImage(whatsappNumber, screenshotPath, caption);
-        fs.unlinkSync(screenshotPath);
+        // Verify file exists before sending
+        if (!fs.existsSync(screenshotPath)) {
+          console.error(`Screenshot not found: ${screenshotPath}`);
+          continue;
+        }
+
+        try {
+          const caption = `Status update: ${path.basename(screenshotPath, '.png')}`;
+          await sendWhatsAppImage(whatsappNumber, screenshotPath, caption);
+        } catch (error) {
+          console.error(`Error sending screenshot ${screenshotPath}:`, error);
+        } finally {
+          // Only delete after successful send or if error occurred
+          if (fs.existsSync(screenshotPath)) {
+            fs.unlinkSync(screenshotPath);
+          }
+        }
       }
       
-      screenshots.clear();
+      // Clear the sets after processing all screenshots
+      if (session) {
+        session.screenshots.clear();
+      } else {
+        this.activeScreenshots.clear();
+      }
     } catch (error) {
-      console.error('Error sending screenshots:', error);
+      console.error('Error in sendToWhatsApp:', error);
       throw error;
     }
   },
@@ -400,18 +419,16 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
 
       // Take screenshot
       console.log("Taking screenshot of the current page...");
-      const screenshotFolder = `screenshot/${order}`;
-      if (!fs.existsSync(screenshotFolder)) {
-        fs.mkdirSync(screenshotFolder, { recursive: true });
+      const screenshotPath = await screenshotManager.capture(driver, text);
+      try {
+        await sendWhatsAppImage(whatsappNumber, screenshotPath, text);
+      } catch (error) {
+        console.error('Error sending screenshot:', error);
+      } finally {
+        if (fs.existsSync(screenshotPath)) {
+          fs.unlinkSync(screenshotPath);
+        }
       }
-      const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
-      const screenshotName = `${screenshotFolder}/${text.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.png`;
-      const image = await driver.takeScreenshot();
-      fs.writeFileSync(screenshotName, image, "base64");
-
-      // Send screenshot and delete it
-      await sendWhatsAppImage(whatsappNumber, screenshotName, text);
-      fs.unlinkSync(screenshotName);
 
       // Close tab & switch back
       await driver.close();
@@ -444,18 +461,16 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
 
       // Take screenshot
       console.log("Taking screenshot of the current page...");
-      const screenshotFolder = `screenshot/${order}`;
-      if (!fs.existsSync(screenshotFolder)) {
-        fs.mkdirSync(screenshotFolder, { recursive: true });
+      const screenshotPath = await screenshotManager.capture(driver, text);
+      try {
+        await sendWhatsAppImage(whatsappNumber, screenshotPath, text);
+      } catch (error) {
+        console.error('Error sending screenshot:', error);
+      } finally {
+        if (fs.existsSync(screenshotPath)) {
+          fs.unlinkSync(screenshotPath);
+        }
       }
-      const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
-      const screenshotName = `${screenshotFolder}/${text.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.png`;
-      const image = await driver.takeScreenshot();
-      fs.writeFileSync(screenshotName, image, "base64");
-
-      // Send screenshot and delete it
-      await sendWhatsAppImage(whatsappNumber, screenshotName, text);
-      fs.unlinkSync(screenshotName);
 
       // Close tab & switch back
       await driver.close();
@@ -683,6 +698,9 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       type: "text",
       text: { body: "An error occurred while processing your request. Please try again later." }
     });
+  } finally {
+    // Cleanup any remaining screenshots
+    screenshotManager.clear();
   }
 }
 
