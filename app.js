@@ -1004,7 +1004,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Add this new test endpoint after your other routes
+// Update the test-decrypt endpoint
 app.post("/test-decrypt", async (req, res) => {
   try {
     const { encryptedText } = req.body;
@@ -1017,62 +1017,65 @@ app.post("/test-decrypt", async (req, res) => {
 
     console.log('Testing decryption for:', encryptedText);
     
-    // Try both space-padded and regular decryption
-    const results = {
-      input: encryptedText,
-      method1: null,
-      method2: null,
-      method3: null
-    };
-
     try {
-      // Method 1: Original method
-      const decipher1 = crypto.createDecipheriv(algorithm, key, iv);
-      let decrypted1 = decipher1.update(encryptedText, 'hex', 'utf8');
-      decrypted1 += decipher1.final('utf8');
-      results.method1 = decrypted1;
-    } catch (e) {
-      results.method1 = `Error: ${e.message}`;
+      const decrypted = decrypt(encryptedText);
+      res.json({
+        input: encryptedText,
+        decrypted: decrypted,
+        config: {
+          algorithm,
+          keyLength: key.length,
+          ivLength: iv.length
+        }
+      });
+    } catch (error) {
+      console.error('Decryption test error:', error);
+      res.status(500).json({
+        error: 'Decryption failed',
+        message: error.message,
+        input: encryptedText
+      });
+    }
+  } catch (error) {
+    console.error('Test endpoint error:', error);
+    res.status(500).json({
+      error: 'Test endpoint failed',
+      message: error.message
+    });
+  }
+});
+
+// Add new status check endpoint
+app.post("/check-status", async (req, res) => {
+  try {
+    const { username, phone_number } = req.body;
+    
+    if (!username || !phone_number) {
+      return res.status(400).json({
+        error: "Missing parameters",
+        message: "Both username and phone_number are required"
+      });
     }
 
-    try {
-      // Method 2: Space padding removal
-      const decipher2 = crypto.createDecipheriv(algorithm, key, iv);
-      decipher2.setAutoPadding(false);
-      const encryptedBuffer = Buffer.from(encryptedText, 'hex');
-      let decrypted2 = decipher2.update(encryptedBuffer);
-      decrypted2 = Buffer.concat([decrypted2, decipher2.final()]);
-      while (decrypted2[decrypted2.length - 1] === 0x20) {
-        decrypted2 = decrypted2.slice(0, -1);
-      }
-      results.method2 = decrypted2.toString('utf8');
-    } catch (e) {
-      results.method2 = `Error: ${e.message}`;
-    }
+    console.log(`Manual status check request for user: ${username} from: ${phone_number}`);
 
-    try {
-      // Method 3: Legacy format
-      const decipher3 = crypto.createDecipher(algorithm, process.env.ENCRYPTION_KEY);
-      let decrypted3 = decipher3.update(encryptedText, 'hex', 'utf8');
-      decrypted3 += decipher3.final('utf8');
-      results.method3 = decrypted3;
-    } catch (e) {
-      results.method3 = `Error: ${e.message}`;
-    }
+    // Use the same screenshot request handler as webhook
+    await handleScreenshotRequest(username, phone_number);
 
-    res.json({
-      results,
-      encryptionConfig: {
-        algorithm,
-        keyLength: key.length,
-        ivLength: iv.length
+    res.status(200).json({
+      status: "success",
+      message: "Status check initiated",
+      details: {
+        username: username,
+        phone: phone_number,
+        timestamp: new Date().toISOString()
       }
     });
 
   } catch (error) {
-    console.error('Decryption test error:', error);
+    console.error('Status check error:', error);
     res.status(500).json({
-      error: 'Decryption test failed',
+      error: 'Status check failed',
       message: error.message
     });
   }
