@@ -484,13 +484,23 @@ async function handleScreenshotRequest(username, whatsappNumber) {
   try {
     screenshotManager.clear();
 
+    console.log("Searching for:", username); // Add logging
+
     const rows = await new Promise((resolve, reject) => {
-      db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)",
-        [username, username],
+      const query = "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ? OR (Personal_Email IS NULL AND Client_Name = ?)";
+      console.log("Query:", query); // Add logging
+      console.log("Parameters:", [username, username]); // Add logging
+
+      db.all(query, [username, username],
         (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
+          if (err) {
+            console.error("Database error:", err); // Add logging
+            reject(err);
+          } else {
+            console.log("Query results:", rows); // Add logging
+            console.log("Number of rows found:", rows?.length); // Add logging
+            resolve(rows);
+          }
         }
       );
     });
@@ -788,7 +798,7 @@ app.post("/capture", async (req, res) => {
   try {
     console.log("Capture request received...");
     const { username } = req.body;
-    console.log("Request body:", req.body);
+    console.log("Searching for:", username); // Add logging
 
     if (!username) {
       console.error("Missing required parameter: username");
@@ -806,6 +816,9 @@ app.post("/capture", async (req, res) => {
           console.error("Database error:", err);
           return res.status(500).json({ error: "An internal server error occurred while accessing the database." });
         }
+
+        console.log("Query results:", rows); // Add logging
+        console.log("Number of rows found:", rows?.length); // Add logging
 
         if (!rows || rows.length === 0) {
           console.log("User not found in database.");
