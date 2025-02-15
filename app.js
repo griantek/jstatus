@@ -44,11 +44,23 @@ const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
 const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 
 function decrypt(text) {
-  if (!text) return ''; // Return empty string if text is null/undefined
-  let decipher = crypto.createDecipheriv(algorithm, key, iv);
-  let decrypted = decipher.update(text, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  try {
+    if (!text) return ''; // Return empty string if text is null/undefined
+    let decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(text, 'hex', 'utf8');
+    try {
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (finalError) {
+      console.error('Decryption final error:', finalError);
+      console.error('Failed to decrypt text:', text);
+      return ''; // Return empty string on decryption error
+    }
+  } catch (error) {
+    console.error('Decryption error:', error);
+    console.error('Failed to decrypt text:', text);
+    return ''; // Return empty string on error
+  }
 }
 
 function encrypt(text) {
@@ -534,11 +546,35 @@ async function handleScreenshotRequest(username, whatsappNumber) {
     newlyGeneratedScreenshots.clear();
 
     // Process automation and generate new screenshots
-    let matches = rows.map(row => ({
-      url: row.url ? decrypt(row.url) : '',
-      username: row.username ? decrypt(row.username) : '',
-      password: row.password ? decrypt(row.password) : ''
-    })).filter(match => match.url && match.username && match.password); // Filter out incomplete entries
+    let matches = rows.map(row => {
+      console.log('Processing row:', {
+        url: row.url ? row.url.substring(0, 20) + '...' : 'null',
+        username: row.username ? row.username.substring(0, 20) + '...' : 'null'
+      });
+      
+      const decrypted = {
+        url: row.url ? decrypt(row.url) : '',
+        username: row.username ? decrypt(row.username) : '',
+        password: row.password ? decrypt(row.password) : ''
+      };
+      
+      console.log('Decrypted values (partial):', {
+        url: decrypted.url ? decrypted.url.substring(0, 20) + '...' : '',
+        username: decrypted.username ? decrypted.username.substring(0, 20) + '...' : ''
+      });
+      
+      return decrypted;
+    }).filter(match => {
+      const isValid = match.url && match.username && match.password;
+      if (!isValid) {
+        console.log('Filtered out invalid match:', {
+          hasUrl: Boolean(match.url),
+          hasUsername: Boolean(match.username),
+          hasPassword: Boolean(match.password)
+        });
+      }
+      return isValid;
+    });
 
     if (matches.length === 0) {
       await sendWhatsAppMessage(whatsappNumber, {
