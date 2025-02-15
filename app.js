@@ -211,25 +211,43 @@ const screenshotManager = {
     const session = this.sessions.get(userId);
     if (!session) return;
 
-    for (const filepath of session.screenshots) {
-      try {
-        if (fs.existsSync(filepath)) {
-          fs.unlinkSync(filepath);
-        }
-      } catch (error) {
-        console.error(`Error deleting ${filepath}:`, error);
-      }
-    }
-
     try {
+      // Only clear screenshots for this specific user's session
+      for (const filepath of session.screenshots) {
+        try {
+          if (fs.existsSync(filepath)) {
+            fs.unlinkSync(filepath);
+          }
+        } catch (error) {
+          console.error(`Error deleting ${filepath}:`, error);
+        }
+      }
+
+      // Only remove this user's session folder
       if (fs.existsSync(session.folder)) {
         fs.rmSync(session.folder, { recursive: true });
       }
-    } catch (error) {
-      console.error(`Error deleting session folder: ${session.folder}`, error);
-    }
 
-    this.sessions.delete(userId);
+      this.sessions.delete(userId);
+      console.log(`Cleaned up session for user: ${userId}`);
+    } catch (error) {
+      console.error(`Error cleaning up session for user ${userId}:`, error);
+    }
+  },
+
+  // Remove the clear() method as it's no longer needed
+
+  // Modify clearAllScreenshots to be safer
+  clearAllScreenshots() {
+    // Only clean up sessions that are older than 30 minutes
+    const MAX_SESSION_AGE = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+
+    for (const [userId, session] of this.sessions.entries()) {
+      if (now - session.lastAccessed > MAX_SESSION_AGE) {
+        this.clearSession(userId);
+      }
+    }
   }
 };
 
@@ -622,7 +640,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       session.lastAccessed = Date.now();
 
       // Rest of the handleScreenshotRequest implementation...
-      screenshotManager.clear();
+      screenshotManager.clearSession(username);
 
       console.log("Searching for:", username);
 
@@ -1101,13 +1119,20 @@ setInterval(() => {
 
 // Add cleanup on process exit
 process.on('exit', () => {
-  screenshotManager.clear();
+  // On exit, only clean up expired sessions
+  screenshotManager.clearAllScreenshots();
 });
 
 process.on('SIGINT', () => {
-  screenshotManager.clear();
+  // On interrupt, only clean up expired sessions
+  screenshotManager.clearAllScreenshots();
   process.exit();
 });
+
+// Add periodic cleanup
+setInterval(() => {
+  screenshotManager.clearAllScreenshots();
+}, 15 * 60 * 1000); // Run every 15 minutes
 
 // Add health check route
 app.get('/', (req, res) => {
