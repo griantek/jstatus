@@ -624,6 +624,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       let decrypted = {};
       try {
         decrypted.url = row.url ? decrypt(row.url) : '';
+        console.log('Decrypted URL:', decrypted.url);
       } catch (e) {
         console.error('URL decryption error:', e);
         decrypted.url = '';
@@ -631,6 +632,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
       try {
         decrypted.username = row.username ? decrypt(row.username) : '';
+        console.log('Decrypted username:', decrypted.username); 
       } catch (e) {
         console.error('Username decryption error:', e);
         decrypted.username = '';
@@ -638,6 +640,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
       try {
         decrypted.password = row.password ? decrypt(row.password) : '';
+        console.log('Decrypted password:', decrypted.password);
       } catch (e) {
         console.error('Password decryption error:', e);
         decrypted.password = '';
