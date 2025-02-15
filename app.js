@@ -580,7 +580,6 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-  console.log('WhatsApp webhook message received:', req.body);
   try {
     const messageData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!messageData) return res.sendStatus(400);
@@ -791,6 +790,7 @@ app.post("/capture", async (req, res) => {
   try {
     console.log("Capture request received...");
     const { username } = req.body;
+    console.log("Request body:", req.body);
 
     if (!username) {
       console.error("Missing required parameter: username");
