@@ -10,6 +10,8 @@ import FormData from "form-data"; // Added for WhatsApp media uploads
 import dotenv from "dotenv"; // Added for environment variables
 import path from "path"; // Added for path handling
 import { promisify } from 'util'; // Added for promisify
+import { v4 as uuidv4 } from 'uuid';
+import PQueue from 'p-queue';
 
 dotenv.config();
 
@@ -100,10 +102,16 @@ async function switchToActiveElement(driver) {
   return activeElement;
 }
 
-// Update the existing screenshotManager to include session support
+// Add request queue to manage concurrent requests
+const requestQueue = new PQueue({concurrency: 1});
+
+// Add user session tracking
+const userSessions = new Map();
+
+// Modify screenshotManager to handle user-specific directories
 const screenshotManager = {
-  activeScreenshots: new Set(),
   baseFolder: process.env.SCREENSHOT_FOLDER,
+  sessions: new Map(),
 
   async init() {
     if (!fs.existsSync(this.baseFolder)) {
@@ -111,24 +119,49 @@ const screenshotManager = {
     }
   },
 
-  async capture(driver, description, session = null) {
+  getUserFolder(userId) {
+    const userFolder = path.join(this.baseFolder, userId.replace(/[^a-zA-Z0-9]/g, '_'));
+    if (!fs.existsSync(userFolder)) {
+      fs.mkdirSync(userFolder, { recursive: true });
+    }
+    return userFolder;
+  },
+
+  createSession(userId) {
+    const sessionId = uuidv4();
+    const sessionFolder = path.join(this.getUserFolder(userId), sessionId);
+    
+    if (!fs.existsSync(sessionFolder)) {
+      fs.mkdirSync(sessionFolder, { recursive: true });
+    }
+
+    const session = {
+      id: sessionId,
+      userId,
+      folder: sessionFolder,
+      screenshots: new Set(),
+      createdAt: Date.now(),
+      lastAccessed: Date.now()
+    };
+
+    this.sessions.set(sessionId, session);
+    return session;
+  },
+
+  async capture(driver, description, userId) {
+    const session = this.sessions.get(userId) || this.createSession(userId);
+    session.lastAccessed = Date.now();
+
     try {
       const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
       const safeDescription = description.replace(/[^a-zA-Z0-9]/g, '_');
       const filename = `${safeDescription}_${timestamp}.png`;
-      const filepath = session ? 
-        path.join(session.folder, filename) : 
-        path.join(this.baseFolder, filename);
+      const filepath = path.join(session.folder, filename);
 
       const image = await driver.takeScreenshot();
       fs.writeFileSync(filepath, image, 'base64');
       
-      if (session) {
-        session.screenshots.add(filepath);
-      } else {
-        this.activeScreenshots.add(filepath);
-      }
-      
+      session.screenshots.add(filepath);
       console.log(`Screenshot saved: ${filepath}`);
       return filepath;
     } catch (error) {
@@ -137,8 +170,11 @@ const screenshotManager = {
     }
   },
 
-  async sendToWhatsApp(whatsappNumber, session = null) {
-    const screenshots = session ? Array.from(session.screenshots) : Array.from(this.activeScreenshots);
+  async sendToWhatsApp(whatsappNumber, userId) {
+    const session = this.sessions.get(userId);
+    if (!session) return;
+
+    const screenshots = Array.from(session.screenshots);
     
     if (screenshots.length === 0) {
       await sendWhatsAppMessage(whatsappNumber, {
@@ -152,40 +188,30 @@ const screenshotManager = {
 
     try {
       for (const screenshotPath of screenshots) {
-        // Verify file exists before sending
-        if (!fs.existsSync(screenshotPath)) {
-          console.error(`Screenshot not found: ${screenshotPath}`);
-          continue;
-        }
+        if (!fs.existsSync(screenshotPath)) continue;
 
         try {
           const caption = `Status update: ${path.basename(screenshotPath, '.png')}`;
           await sendWhatsAppImage(whatsappNumber, screenshotPath, caption);
-        } catch (error) {
-          console.error(`Error sending screenshot ${screenshotPath}:`, error);
         } finally {
-          // Only delete after successful send or if error occurred
           if (fs.existsSync(screenshotPath)) {
             fs.unlinkSync(screenshotPath);
           }
         }
       }
       
-      // Clear the sets after processing all screenshots
-      if (session) {
-        session.screenshots.clear();
-      } else {
-        this.activeScreenshots.clear();
-      }
+      session.screenshots.clear();
     } catch (error) {
       console.error('Error in sendToWhatsApp:', error);
       throw error;
     }
   },
 
-  clear(session = null) {
-    const screenshots = session ? session.screenshots : this.activeScreenshots;
-    for (const filepath of screenshots) {
+  clearSession(userId) {
+    const session = this.sessions.get(userId);
+    if (!session) return;
+
+    for (const filepath of session.screenshots) {
       try {
         if (fs.existsSync(filepath)) {
           fs.unlinkSync(filepath);
@@ -194,7 +220,16 @@ const screenshotManager = {
         console.error(`Error deleting ${filepath}:`, error);
       }
     }
-    screenshots.clear();
+
+    try {
+      if (fs.existsSync(session.folder)) {
+        fs.rmSync(session.folder, { recursive: true });
+      }
+    } catch (error) {
+      console.error(`Error deleting session folder: ${session.folder}`, error);
+    }
+
+    this.sessions.delete(userId);
   }
 };
 
@@ -244,7 +279,7 @@ const SessionManager = {
 screenshotManager.init();
 
 // Function to parse and execute instructions from KEYS.txt
-async function executeInstructions(driver, username, password, order, journalLink, whatsappNumber) {
+async function executeInstructions(driver, username, password, order, journalLink, whatsappNumber, userId) {
   try {
     // Start the timer
     const startTime = performance.now();
@@ -323,8 +358,8 @@ async function executeInstructions(driver, username, password, order, journalLin
         await driver.actions().sendKeys(password).perform();
       } else if (trimmedInstruction === "SCRNSHT") {
         console.log("Taking screenshot of current page...");
-        const screenshotPath = await screenshotManager.capture(driver, username);
-        await sendWhatsAppImage(whatsappNumber, screenshotPath, `Manual screenshot: ${username}`);
+        const screenshotPath = await screenshotManager.capture(driver, username, userId);
+        await sendWhatsAppImage(whatsappNumber, screenshotPath, ``);
         fs.unlinkSync(screenshotPath);
       } else if (trimmedInstruction.startsWith("INPUT-")) {
         const inputString = trimmedInstruction.replace("INPUT-", "");
@@ -565,147 +600,153 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
 
 // Replace the existing handleScreenshotRequest function
 async function handleScreenshotRequest(username, whatsappNumber) {
-  try {
-    screenshotManager.clear();
+  // Generate a unique request ID
+  const requestId = uuidv4();
+  
+  return requestQueue.add(async () => {
+    try {
+      console.log(`Processing request ${requestId} for user ${username}`);
+      
+      // Create or get user session
+      let session = userSessions.get(username);
+      if (!session) {
+        session = {
+          id: uuidv4(),
+          createdAt: Date.now(),
+          lastAccessed: Date.now()
+        };
+        userSessions.set(username, session);
+      }
+      
+      // Update last accessed time
+      session.lastAccessed = Date.now();
 
-    console.log("Searching for:", username);
+      // Rest of the handleScreenshotRequest implementation...
+      screenshotManager.clear();
 
-    const rows = await new Promise((resolve, reject) => {
-      // First try to find by Personal_Email
-      db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
-        [username],
-        (err, emailRows) => {
-          if (err) {
-            reject(err);
-            return;
-          }
+      console.log("Searching for:", username);
 
-          if (emailRows && emailRows.length > 0) {
-            console.log("Found by Personal_Email");
-            resolve(emailRows);
-            return;
-          }
-
-          // If no results by Personal_Email, try Client_Name
-          db.all(
-            "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
-            [username],
-            (err, clientRows) => {
-              if (err) {
-                reject(err);
-              } else {
-                console.log("Found by Client_Name");
-                resolve(clientRows);
-              }
+      const rows = await new Promise((resolve, reject) => {
+        // First try to find by Personal_Email
+        db.all(
+          "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
+          [username],
+          (err, emailRows) => {
+            if (err) {
+              reject(err);
+              return;
             }
-          );
+
+            if (emailRows && emailRows.length > 0) {
+              console.log("Found by Personal_Email");
+              resolve(emailRows);
+              return;
+            }
+
+            // If no results by Personal_Email, try Client_Name
+            db.all(
+              "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
+              [username],
+              (err, clientRows) => {
+                if (err) {
+                  reject(err);
+                } else {
+                  console.log("Found by Client_Name");
+                  resolve(clientRows);
+                }
+              }
+            );
+          }
+        );
+      });
+
+      if (!rows || rows.length === 0) {
+        await sendWhatsAppMessage(whatsappNumber, {
+          messaging_product: "whatsapp",
+          to: whatsappNumber,
+          type: "text",
+          text: { body: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again." }
+        });
+        return;
+      }
+      console.log("Found account information:", rows);
+
+      // Clear the set of new screenshots before processing
+      newlyGeneratedScreenshots.clear();
+
+      // Process automation and generate new screenshots
+      let matches = rows.map(row => {
+
+        // Try decryption with detailed logging
+        let decrypted = {};
+        try {
+          decrypted.url = row.url ? decrypt(row.url) : '';
+          console.log('Decrypted URL:', decrypted.url);
+        } catch (e) {
+          console.error('URL decryption error:', e);
+          decrypted.url = '';
         }
-      );
-    });
 
-    if (!rows || rows.length === 0) {
+        try {
+          decrypted.username = row.username ? decrypt(row.username) : '';
+          console.log('Decrypted username:', decrypted.username); 
+        } catch (e) {
+          console.error('Username decryption error:', e);
+          decrypted.username = '';
+        }
+
+        try {
+          decrypted.password = row.password ? decrypt(row.password) : '';
+          console.log('Decrypted password:', decrypted.password);
+        } catch (e) {
+          console.error('Password decryption error:', e);
+          decrypted.password = '';
+        }
+
+        return decrypted;
+      }).filter(match => {
+        const isValid = match.url && match.username && match.password;
+        return isValid;
+      });
+
+      if (matches.length === 0) {
+        await sendWhatsAppMessage(whatsappNumber, {
+          messaging_product: "whatsapp",
+          to: whatsappNumber,
+          type: "text",
+          text: { body: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance." }
+        });
+        return;
+      }
+
+      // Process each match (this will generate new screenshots)
+      for (const [index, match] of matches.entries()) {
+        await handleJournal(match, index + 1, whatsappNumber, username);
+      }
+
+      // Send all captured screenshots at once
+      await screenshotManager.sendToWhatsApp(whatsappNumber, username);
+
+      // Clear the screenshots set after processing
+      newlyGeneratedScreenshots.clear();
+
+      // Send completion message
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
         to: whatsappNumber,
         type: "text",
-        text: { body: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again." }
+        text: { body: "All new status updates have been sent." }
       });
-      return;
+
+    } catch (error) {
+      console.error(`Error processing request ${requestId}:`, error);
+      throw error;
+    } finally {
+      // Cleanup
+      screenshotManager.clearSession(username);
+      console.log(`Completed request ${requestId}`);
     }
-    console.log("Found account information:", rows);
-
-    // Clear the set of new screenshots before processing
-    newlyGeneratedScreenshots.clear();
-
-    // Process automation and generate new screenshots
-    let matches = rows.map(row => {
-
-      // Try decryption with detailed logging
-      let decrypted = {};
-      try {
-        decrypted.url = row.url ? decrypt(row.url) : '';
-        console.log('Decrypted URL:', decrypted.url);
-      } catch (e) {
-        console.error('URL decryption error:', e);
-        decrypted.url = '';
-      }
-
-      try {
-        decrypted.username = row.username ? decrypt(row.username) : '';
-        console.log('Decrypted username:', decrypted.username); 
-      } catch (e) {
-        console.error('Username decryption error:', e);
-        decrypted.username = '';
-      }
-
-      try {
-        decrypted.password = row.password ? decrypt(row.password) : '';
-        console.log('Decrypted password:', decrypted.password);
-      } catch (e) {
-        console.error('Password decryption error:', e);
-        decrypted.password = '';
-      }
-
-      return decrypted;
-    }).filter(match => {
-      const isValid = match.url && match.username && match.password;
-      return isValid;
-    });
-
-    if (matches.length === 0) {
-      await sendWhatsAppMessage(whatsappNumber, {
-        messaging_product: "whatsapp",
-        to: whatsappNumber,
-        type: "text",
-        text: { body: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance." }
-      });
-      return;
-    }
-
-    // Process each match (this will generate new screenshots)
-    for (const [index, match] of matches.entries()) {
-      await handleJournal(match, index + 1, whatsappNumber);
-    }
-
-    // Check if any new screenshots were generated
-    // if (newlyGeneratedScreenshots.size === 0) {
-    //   await sendWhatsAppMessage(whatsappNumber, {
-    //     messaging_product: "whatsapp",
-    //     to: whatsappNumber,
-    //     type: "text",
-    //     text: { body: "No new updates found." }
-    //   });
-    //   return;
-    // }
-
-    // Send all captured screenshots at once
-    await screenshotManager.sendToWhatsApp(whatsappNumber);
-
-    // Clear the screenshots set after processing
-    newlyGeneratedScreenshots.clear();
-
-    // Send completion message
-    await sendWhatsAppMessage(whatsappNumber, {
-      messaging_product: "whatsapp",
-      to: whatsappNumber,
-      type: "text",
-      text: { body: "All new status updates have been sent." }
-    });
-
-  } catch (error) {
-    console.error('Error in handleScreenshotRequest:', error);
-    screenshotManager.clear(); // Clean up on error
-    await sendWhatsAppMessage(whatsappNumber, {
-      messaging_product: "whatsapp",
-      to: whatsappNumber,
-      type: "text",
-      text: { body: "An error occurred while processing your request. Please try again later." }
-    });
-  } finally {
-    // Cleanup any remaining screenshots
-    screenshotManager.clear();
-  }
+  });
 }
 
 // Add WhatsApp webhook routes
@@ -846,82 +887,82 @@ async function handleSpringerNatureCHKSTS(driver, order, foundTexts) {
 }
 
 // Function to handle different journal types
-const handleJournal = async (match, order, whatsappNumber) => {
+const handleJournal = async (match, order, whatsappNumber, userId) => {
   const url = match.url.toLowerCase();
   if (url.includes("manuscriptcentral")) {
-    await handleManuscriptCentral(match, order, whatsappNumber);
+    await handleManuscriptCentral(match, order, whatsappNumber, userId);
   } else if (url.includes("editorialmanager")) {
-    await handleEditorialManager(match, order, whatsappNumber);
+    await handleEditorialManager(match, order, whatsappNumber, userId);
   } else if (url.includes("tandfonline")) {
-    await handleTandFOnline(match, order, whatsappNumber);
+    await handleTandFOnline(match, order, whatsappNumber, userId);
   } else if (url.includes("taylorfrancis")) {
-    await handleTaylorFrancis(match, order, whatsappNumber);
+    await handleTaylorFrancis(match, order, whatsappNumber, userId);
   } else if (url.includes("cgscholar")) {
-    await handleCGScholar(match, order, whatsappNumber);
+    await handleCGScholar(match, order, whatsappNumber, userId);
   } else if (url.includes("thescipub")) {
-    await handleTheSciPub(match, order, whatsappNumber);
+    await handleTheSciPub(match, order, whatsappNumber, userId);
   } else if (url.includes("wiley.com")) {
-    await handleWiley(match, order, whatsappNumber);
+    await handleWiley(match, order, whatsappNumber, userId);
   } else if (url.includes("periodicos")) {
-    await handlePeriodicos(match, order, whatsappNumber);
+    await handlePeriodicos(match, order, whatsappNumber, userId);
   } else if (url.includes("tspsubmission")) {
-    await handleTSPSubmission(match, order, whatsappNumber);
+    await handleTSPSubmission(match, order, whatsappNumber, userId);
   } else if (url.includes("springernature")) {
-    await handleSpringerNature(match, order, whatsappNumber);
+    await handleSpringerNature(match, order, whatsappNumber, userId);
   } else {
     console.log(`No handler for URL: ${match.url}`);
   }
 };
 
 // Define functions for each journal type
-const handleManuscriptCentral = async (match, order, whatsappNumber) => {
+const handleManuscriptCentral = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Manuscript Central: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleEditorialManager = async (match, order, whatsappNumber) => {
+const handleEditorialManager = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Editorial Manager: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleTandFOnline = async (match, order, whatsappNumber) => {
+const handleTandFOnline = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling TandF Online: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleTaylorFrancis = async (match, order, whatsappNumber) => {
+const handleTaylorFrancis = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Taylor Francis: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleCGScholar = async (match, order, whatsappNumber) => {
+const handleCGScholar = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling CG Scholar: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleTheSciPub = async (match, order, whatsappNumber) => {
+const handleTheSciPub = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling The SciPub: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleWiley = async (match, order, whatsappNumber) => {
+const handleWiley = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Wiley: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handlePeriodicos = async (match, order, whatsappNumber) => {
+const handlePeriodicos = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Periodicos: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleTSPSubmission = async (match, order, whatsappNumber) => {
+const handleTSPSubmission = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling TSP Submission: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
-const handleSpringerNature = async (match, order, whatsappNumber) => {
+const handleSpringerNature = async (match, order, whatsappNumber, userId) => {
   console.log(`Handling Springer Nature: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber);
+  await automateProcess(match, order, whatsappNumber, userId);
 };
 
 // Route to handle /capture requests
@@ -1013,7 +1054,7 @@ async function processRows(rows, res) {
 }
 
 // Function to automate the process for a given match
-const automateProcess = async (match, order, whatsappNumber) => {
+const automateProcess = async (match, order, whatsappNumber, userId) => {
   const sessionId = SessionManager.createSession(whatsappNumber);
   const session = SessionManager.getSession(sessionId);
   
@@ -1037,7 +1078,7 @@ const automateProcess = async (match, order, whatsappNumber) => {
     await driver.sleep(5000);
     
     // Pass session to executeInstructions
-    await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber, session);
+    await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber, userId);
     
   } catch (error) {
     console.error("Automation error:", error);
