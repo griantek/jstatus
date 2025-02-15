@@ -99,32 +99,36 @@ async function switchToActiveElement(driver) {
   return activeElement;
 }
 
-// Add this centralized screenshot management
+// Update the existing screenshotManager to include session support
 const screenshotManager = {
   activeScreenshots: new Set(),
   baseFolder: process.env.SCREENSHOT_FOLDER,
 
   async init() {
-    // Ensure base screenshot folder exists
     if (!fs.existsSync(this.baseFolder)) {
       fs.mkdirSync(this.baseFolder);
     }
   },
 
-  async capture(driver, description) {
+  async capture(driver, description, session = null) {
     try {
       const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
       const safeDescription = description.replace(/[^a-zA-Z0-9]/g, '_');
       const filename = `${safeDescription}_${timestamp}.png`;
-      const filepath = path.join(this.baseFolder, filename);
+      const filepath = session ? 
+        path.join(session.folder, filename) : 
+        path.join(this.baseFolder, filename);
 
-      // Take screenshot
       const image = await driver.takeScreenshot();
       fs.writeFileSync(filepath, image, 'base64');
       
-      this.activeScreenshots.add(filepath);
-      console.log(`Screenshot saved: ${filepath}`);
+      if (session) {
+        session.screenshots.add(filepath);
+      } else {
+        this.activeScreenshots.add(filepath);
+      }
       
+      console.log(`Screenshot saved: ${filepath}`);
       return filepath;
     } catch (error) {
       console.error('Screenshot capture error:', error);
@@ -132,8 +136,10 @@ const screenshotManager = {
     }
   },
 
-  async sendToWhatsApp(whatsappNumber) {
-    if (this.activeScreenshots.size === 0) {
+  async sendToWhatsApp(whatsappNumber, session = null) {
+    const screenshots = session ? session.screenshots : this.activeScreenshots;
+    
+    if (screenshots.size === 0) {
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
         to: whatsappNumber,
@@ -144,25 +150,22 @@ const screenshotManager = {
     }
 
     try {
-      for (const screenshotPath of this.activeScreenshots) {
+      for (const screenshotPath of screenshots) {
         const caption = `Status update: ${path.basename(screenshotPath, '.png')}`;
         await sendWhatsAppImage(whatsappNumber, screenshotPath, caption);
-        
-        // Delete after sending
         fs.unlinkSync(screenshotPath);
-        console.log(`Sent and deleted: ${screenshotPath}`);
       }
-
-      this.activeScreenshots.clear();
+      
+      screenshots.clear();
     } catch (error) {
       console.error('Error sending screenshots:', error);
       throw error;
     }
   },
 
-  clear() {
-    // Clean up any remaining screenshots
-    for (const filepath of this.activeScreenshots) {
+  clear(session = null) {
+    const screenshots = session ? session.screenshots : this.activeScreenshots;
+    for (const filepath of screenshots) {
       try {
         if (fs.existsSync(filepath)) {
           fs.unlinkSync(filepath);
@@ -171,7 +174,49 @@ const screenshotManager = {
         console.error(`Error deleting ${filepath}:`, error);
       }
     }
-    this.activeScreenshots.clear();
+    screenshots.clear();
+  }
+};
+
+// Add a session manager to track user sessions
+const SessionManager = {
+  sessions: new Map(),
+  
+  createSession(userId) {
+    const sessionId = `${userId}_${Date.now()}`;
+    const sessionFolder = path.join(process.env.SCREENSHOT_FOLDER, sessionId);
+    
+    if (!fs.existsSync(sessionFolder)) {
+      fs.mkdirSync(sessionFolder, { recursive: true });
+    }
+    
+    this.sessions.set(sessionId, {
+      userId,
+      folder: sessionFolder,
+      screenshots: new Set(),
+      createdAt: new Date(),
+      driver: null
+    });
+    
+    return sessionId;
+  },
+  
+  async cleanupSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      if (session.driver) {
+        await session.driver.quit();
+      }
+      // Delete session folder
+      if (fs.existsSync(session.folder)) {
+        fs.rmSync(session.folder, { recursive: true });
+      }
+      this.sessions.delete(sessionId);
+    }
+  },
+  
+  getSession(sessionId) {
+    return this.sessions.get(sessionId);
   }
 };
 
@@ -946,44 +991,49 @@ async function processRows(rows, res) {
 
 // Function to automate the process for a given match
 const automateProcess = async (match, order, whatsappNumber) => {
-  // console.log(`Processing: URL: ${match.url}, Username: ${match.username}, Password: ${match.password}`);
-
-  const driverPath = process.env.CHROME_DRIVER_PATH;
-  const service = new chrome.ServiceBuilder(driverPath);
+  const sessionId = SessionManager.createSession(whatsappNumber);
+  const session = SessionManager.getSession(sessionId);
+  
   const options = new chrome.Options();
-
-  // Enable headless mode and set the maximum screen width
-  options.addArguments("--headless");
-  options.addArguments("--window-size=1920,1080");
-
-  // Run Chrome in incognito mode to avoid storing cache
-  options.addArguments("--incognito");
-
-  const driver = await new Builder()
-    .forBrowser("chrome")
-    .setChromeOptions(options)
-    .setChromeService(service)
-    .build();
+  options.addArguments([
+    "--headless",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--window-size=1920,1080",
+    "--incognito"
+  ]);
 
   try {
+    const driver = await new Builder()
+      .forBrowser("chrome")
+      .setChromeOptions(options)
+      .build();
+    
+    session.driver = driver;
     await driver.get(match.url);
-    // await driver.get("https://cgscholar.com/identity/users/sign_in");
-
-    // Wait for the page to load
     await driver.sleep(5000);
-
-    // Execute instructions
-    await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber);
-    // await executeInstructions(driver, match.username, match.password, order, "https://cgscholar.com/identity/users/sign_in");
-    // await executeInstructions(driver, "Sandipgbadadhe45@gmail.com", "Welcome@1234", order, "https://accounts.taylorfrancis.com/identity/#/login?authorize=true&client_id=59f21242bb410562f60413514f5108d80ede3086581e834d9027687f7a875502&response_type=code&scope=mail&redirect_uri=http:%2F%2Fnew-api.taylorfrancis.com%2Fuser-auth%2Fcallback%2F100.65.16.155&state=&flow=new&journal=IISE%20Transactions%20on%20Healthcare%20Systems%20Engineering&brand=rptnf");
-
-    console.log("Process completed successfully.");
-  } catch (automationError) {
-    console.error("Automation error:", automationError);
+    
+    // Pass session to executeInstructions
+    await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber, session);
+    
+  } catch (error) {
+    console.error("Automation error:", error);
   } finally {
-    await driver.quit();
+    await SessionManager.cleanupSession(sessionId);
   }
 };
+
+// Add session cleanup on intervals
+setInterval(() => {
+  const MAX_SESSION_AGE = 30 * 60 * 1000; // 30 minutes
+  const now = Date.now();
+  
+  for (const [sessionId, session] of SessionManager.sessions) {
+    if (now - session.createdAt > MAX_SESSION_AGE) {
+      SessionManager.cleanupSession(sessionId);
+    }
+  }
+}, 5 * 60 * 1000); // Check every 5 minutes
 
 // Add cleanup on process exit
 process.on('exit', () => {
