@@ -399,7 +399,6 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
 
 /////////////// WHATSAPP MSG FUNCTIONS //////////////////////
 async function sendWhatsAppMessage(to, message) {
-  console.log('Sending WhatsApp message:', message);
   try {
     await axios.post(
       `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
@@ -410,8 +409,7 @@ async function sendWhatsAppMessage(to, message) {
           'Content-Type': 'application/json'
         }
       }
-    );
-    console.log('WhatsApp message sent successfully. process.env.WHATSAPP_PHONE_NUMBER_ID:', process.env.WHATSAPP_PHONE_NUMBER_ID);
+    );  
   } catch (error) {
     console.error('Error sending WhatsApp message:', error.response?.data || error.message);
     throw error;
@@ -597,10 +595,10 @@ app.post('/webhook', async (req, res) => {
     processedMessages.add(messageId);
 
     if (messageData.type === 'text') {
+      console.log(`Received text message from ${from}: ${messageData.text.body}`);
       const username = messageData.text.body.trim();
       await handleScreenshotRequest(username, from);
     }
-    console.log('Webhook processed successfully.');
 
     res.sendStatus(200);
   } catch (error) {
