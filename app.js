@@ -47,21 +47,41 @@ function decrypt(text) {
   try {
     if (!text) return '';
     
+    console.log('Decryption attempt for:', text.substring(0, 32) + '...');
+    
     // Convert hex string to bytes
     const encryptedBytes = Buffer.from(text, 'hex');
     
-    // Create decipher
+    // Create decipher with auto padding disabled
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    decipher.setAutoPadding(false);
     
     // Decrypt
-    let decrypted = decipher.update(encryptedBytes);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    
-    // Convert to string and strip whitespace (equivalent to Python's strip())
-    return decrypted.toString('utf8').trim();
+    let decrypted;
+    try {
+      decrypted = decipher.update(encryptedBytes);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+      
+      // Remove space padding manually (similar to Python implementation)
+      while (decrypted.length > 0 && decrypted[decrypted.length - 1] === 32) { // 32 is ASCII for space
+        decrypted = decrypted.slice(0, -1);
+      }
+      
+      const result = decrypted.toString('utf8');
+      console.log('Decryption successful:', result.substring(0, 32) + '...');
+      return result;
+    } catch (cryptoError) {
+      // If manual padding removal fails, try with auto padding
+      console.log('Trying with auto padding...');
+      const decipherAuto = crypto.createDecipheriv(algorithm, key, iv);
+      let decryptedAuto = decipherAuto.update(encryptedBytes);
+      decryptedAuto = Buffer.concat([decryptedAuto, decipherAuto.final()]);
+      const resultAuto = decryptedAuto.toString('utf8').trim();
+      console.log('Auto padding decryption result:', resultAuto.substring(0, 32) + '...');
+      return resultAuto;
+    }
   } catch (error) {
-    // Return original text on error (same as Python's except clause)
-    console.log('Decryption failed, returning original text:', error);
+    console.error('Final decryption error:', error);
     return text;
   }
 }
@@ -1079,6 +1099,23 @@ app.post("/check-status", async (req, res) => {
       message: error.message
     });
   }
+});
+
+// Add diagnostic endpoint
+app.get('/crypto-info', (req, res) => {
+  const info = {
+    nodeVersion: process.version,
+    opensslVersion: process.versions.openssl,
+    algorithm: algorithm,
+    keyLength: key.length,
+    ivLength: iv.length,
+    environment: {
+      algorithm: process.env.ENCRYPTION_ALGORITHM,
+      keyPresent: Boolean(process.env.ENCRYPTION_KEY),
+      ivPresent: Boolean(process.env.ENCRYPTION_IV)
+    }
+  };
+  res.json(info);
 });
 
 // Start the Express server
