@@ -1,0 +1,37 @@
+# Editorial Manager Automation
+
+This application automates interactions with the Editorial Manager system using Selenium WebDriver. It reads instructions from a `KEYS.txt` file and performs actions such as logging in, navigating through the system, and taking screenshots.
+
+## How It Works
+- **Automated Login and Navigation**: The app logs into the Editorial Manager system using credentials stored in an encrypted SQLite database.
+- **Instruction Execution**: Instructions are read from a `KEYS.txt` file and executed sequentially. Supported instructions include:
+  - `TAB`: Press the TAB key and capture the text of the active element.
+  - `SPACE`: Press the SPACE key.
+  - `ESC`: Press the ESC key.
+  - `ENTER`: Press the ENTER key.
+  - `FIND`: Open the find dialog (CTRL+F).
+  - `PASTE`: Paste clipboard content (CTRL+V).
+  - `SLEEP <ms>`: Pause execution for the specified milliseconds.
+  - `INPUTUSR`: Input the username.
+  - `INPUTPASS`: Input the password.
+  - `SCRNSHT`: Take a screenshot of the current page.
+  - `INPUT-<text>`: Input the specified text.
+  - `CHKSTS`: Check the status of submissions and take screenshots of relevant pages.
+
+## CHKSTS Instruction
+The `CHKSTS` instruction is used to check the status of submissions and take screenshots of relevant pages. Here is how it works:
+
+1. **Initialization**: A predefined collection of status texts is used to identify relevant submission statuses.
+2. **TAB Navigation**: The app repeatedly presses the TAB key to navigate through the elements on the page.
+3. **Text Capture**: For each element, the app captures the text and checks if it matches any of the predefined status texts.
+4. **New Tab Handling**:
+   - If a matching status text is found, the app opens the link in a new tab.
+   - The app waits for the new page to load and takes a screenshot.
+   - The screenshot is saved in a folder named `screenshot/<order>`.
+   - The new tab is closed, and the app switches back to the original tab.
+5. **Loop Until Non-Matching Text**: The app continues to press the TAB key until it finds an element with text that is not in the predefined collection.
+6. **Repeat for New Matches**: If another matching status text is found, the process is repeated.
+
+## Encrypted Database Queries
+- User credentials and journal links are stored in an encrypted SQLite database.
+- The app decrypts these values before using them to log in and navigate the system.

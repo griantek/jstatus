@@ -1,0 +1,7 @@
+chromedriver
+journal_db.db
+KEYS.txt
+screenshot
+keys
+.env
+node_modules
