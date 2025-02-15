@@ -13,19 +13,35 @@ import { promisify } from 'util'; // Added for promisify
 
 dotenv.config();
 
-// Verify WhatsApp credentials are loaded
+// Add environment variable logging
+console.log('\nEnvironment Variables Status:');
+console.log('============================');
 console.log('WhatsApp Configuration:');
-console.log('Phone Number ID:', process.env.WHATSAPP_PHONE_NUMBER_ID ? '✓ Loaded' : '✗ Missing');
-console.log('Token:', process.env.WHATSAPP_TOKEN ? '✓ Loaded' : '✗ Missing');
+console.log('WHATSAPP_PHONE_NUMBER_ID:', process.env.WHATSAPP_PHONE_NUMBER_ID ? '✓ Loaded' : '✗ Missing');
+console.log('WHATSAPP_TOKEN:', process.env.WHATSAPP_TOKEN ? '✓ Loaded' : '✗ Missing');
+console.log('VERIFY_TOKEN:', process.env.VERIFY_TOKEN ? '✓ Loaded' : '✗ Missing');
+
+console.log('\nEncryption Configuration:');
+console.log('ENCRYPTION_ALGORITHM:', process.env.ENCRYPTION_ALGORITHM ? '✓ Loaded' : '✗ Missing');
+console.log('ENCRYPTION_KEY:', process.env.ENCRYPTION_KEY ? '✓ Loaded' : '✗ Missing');
+console.log('ENCRYPTION_IV:', process.env.ENCRYPTION_IV ? '✓ Loaded' : '✗ Missing');
+
+console.log('\nApplication Configuration:');
+console.log('PORT:', process.env.PORT ? '✓ Loaded' : '✗ Missing');
+console.log('SCREENSHOT_FOLDER:', process.env.SCREENSHOT_FOLDER ? '✓ Loaded' : '✗ Missing');
+console.log('CHROME_DRIVER_PATH:', process.env.CHROME_DRIVER_PATH ? '✓ Loaded' : '✗ Missing');
+console.log('DEFAULT_WHATSAPP_NUMBER:', process.env.DEFAULT_WHATSAPP_NUMBER ? '✓ Loaded' : '✗ Missing');
+console.log('DB_PATH:', process.env.DB_PATH ? '✓ Loaded' : '✗ Missing');
+console.log('============================\n');
 
 const app = express();
-const port = 8004;
+const port = process.env.PORT || 8004;
 
 app.use(express.json());
 
-const algorithm = 'aes-256-cbc';
-const key = Buffer.from('9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2a991c1b7d1585f9e6c9e5e1', 'hex'); // Replace with your actual key
-const iv = Buffer.from('4e5e6f8f2d1a3b4c5d6e7f8e9d1a2b3c', 'hex');   // Replace with your actual IV
+const algorithm = process.env.ENCRYPTION_ALGORITHM;
+const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
+const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 
 function decrypt(text) {
   let decipher = crypto.createDecipheriv(algorithm, key, iv);
@@ -42,7 +58,7 @@ function encrypt(text) {
 }
 
 // Initialize SQLite database
-const db = new sqlite3.Database("journal_db.db");
+const db = new sqlite3.Database(process.env.DB_PATH);
 
 // Function to switch to the active element, handling nested iframes
 async function switchToActiveElement(driver) {
@@ -62,7 +78,7 @@ async function switchToActiveElement(driver) {
 // Add this centralized screenshot management
 const screenshotManager = {
   activeScreenshots: new Set(),
-  baseFolder: 'screenshot',
+  baseFolder: process.env.SCREENSHOT_FOLDER,
 
   async init() {
     // Ensure base screenshot folder exists
@@ -474,8 +490,8 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
     const rows = await new Promise((resolve, reject) => {
       db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ?",
-        [encryptedUsername],
+        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ? OR Personal_Email = ?",
+        [encryptedUsername, encryptedUsername],
         (err, rows) => {
           if (err) reject(err);
           else resolve(rows);
@@ -588,24 +604,6 @@ app.post('/webhook', async (req, res) => {
 
 // Store processed message IDs to avoid duplicate processing
 const processedMessages = new Set();
-
-app.post('/test-whatsapp', async (req, res) => {
-  const { message } = req.body;
-  const whatsappNumber = '919895612423'; // Your number
-
-  try {
-    await sendWhatsAppMessage(whatsappNumber, {
-      messaging_product: "whatsapp",
-      to: whatsappNumber,
-      type: "text",
-      text: { body: message }
-    });
-    res.status(200).json({ message: "WhatsApp message sent successfully." });
-  } catch (error) {
-    console.error('Error sending WhatsApp message:', error);
-    res.status(500).json({ error: "Failed to send WhatsApp message." });
-  }
-});
 
 // Define other CHKSTS handlers (currently empty)
 async function handleManuscriptCentralCHKSTS(driver, order, foundTexts) {
@@ -797,8 +795,8 @@ app.post("/capture", async (req, res) => {
 
     console.log("Querying database for user...");
     db.all(
-      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ?",
-      [encryptedUsername],
+      "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Username = ? OR Personal_Email = ?",
+      [encryptedUsername, encryptedUsername],
       async (err, rows) => {
         if (err) {
           console.error("Database error:", err);
@@ -843,7 +841,7 @@ app.post("/capture", async (req, res) => {
 const automateProcess = async (match, order, whatsappNumber) => {
   // console.log(`Processing: URL: ${match.url}, Username: ${match.username}, Password: ${match.password}`);
 
-  const driverPath = "chromedriver/chromedriver.exe";
+  const driverPath = process.env.CHROME_DRIVER_PATH;
   const service = new chrome.ServiceBuilder(driverPath);
   const options = new chrome.Options();
 
@@ -888,6 +886,16 @@ process.on('exit', () => {
 process.on('SIGINT', () => {
   screenshotManager.clear();
   process.exit();
+});
+
+// Add health check route
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    port: port
+  });
 });
 
 // Start the Express server

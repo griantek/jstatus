@@ -1,37 +1,65 @@
 # Editorial Manager Automation
 
-This application automates interactions with the Editorial Manager system using Selenium WebDriver. It reads instructions from a `KEYS.txt` file and performs actions such as logging in, navigating through the system, and taking screenshots.
+This application automates interactions with various academic journal submission systems using Selenium WebDriver. It reads instructions from KEYS.txt files and performs actions such as logging in, navigating through the system, and taking screenshots.
 
-## How It Works
-- **Automated Login and Navigation**: The app logs into the Editorial Manager system using credentials stored in an encrypted SQLite database.
-- **Instruction Execution**: Instructions are read from a `KEYS.txt` file and executed sequentially. Supported instructions include:
-  - `TAB`: Press the TAB key and capture the text of the active element.
-  - `SPACE`: Press the SPACE key.
-  - `ESC`: Press the ESC key.
-  - `ENTER`: Press the ENTER key.
-  - `FIND`: Open the find dialog (CTRL+F).
-  - `PASTE`: Paste clipboard content (CTRL+V).
-  - `SLEEP <ms>`: Pause execution for the specified milliseconds.
-  - `INPUTUSR`: Input the username.
-  - `INPUTPASS`: Input the password.
-  - `SCRNSHT`: Take a screenshot of the current page.
-  - `INPUT-<text>`: Input the specified text.
-  - `CHKSTS`: Check the status of submissions and take screenshots of relevant pages.
+## Features
 
-## CHKSTS Instruction
-The `CHKSTS` instruction is used to check the status of submissions and take screenshots of relevant pages. Here is how it works:
+### User Authentication
+- Supports user lookup by both Username and Personal_Email in the database
+- Credentials stored in an encrypted SQLite database
+- Uses AES-256-CBC encryption for secure storage
 
-1. **Initialization**: A predefined collection of status texts is used to identify relevant submission statuses.
-2. **TAB Navigation**: The app repeatedly presses the TAB key to navigate through the elements on the page.
-3. **Text Capture**: For each element, the app captures the text and checks if it matches any of the predefined status texts.
-4. **New Tab Handling**:
-   - If a matching status text is found, the app opens the link in a new tab.
-   - The app waits for the new page to load and takes a screenshot.
-   - The screenshot is saved in a folder named `screenshot/<order>`.
-   - The new tab is closed, and the app switches back to the original tab.
-5. **Loop Until Non-Matching Text**: The app continues to press the TAB key until it finds an element with text that is not in the predefined collection.
-6. **Repeat for New Matches**: If another matching status text is found, the process is repeated.
+### Supported Journal Systems
+- Editorial Manager
+- Manuscript Central
+- Taylor & Francis Online
+- Taylor Francis
+- CG Scholar
+- The SciPub
+- Wiley
+- Periodicos
+- TSP Submission
+- Springer Nature
 
-## Encrypted Database Queries
-- User credentials and journal links are stored in an encrypted SQLite database.
-- The app decrypts these values before using them to log in and navigate the system.
+### Automation Features
+- **Automated Login**: Securely logs into journal systems
+- **Status Checking**: Automatically checks submission statuses
+- **Screenshot Capture**: Takes screenshots of relevant pages
+- **WhatsApp Integration**: Sends status updates via WhatsApp
+
+### Instruction Set
+The app reads and executes instructions from KEYS.txt files:
+- `TAB`: Press the TAB key
+- `SPACE`: Press the SPACE key
+- `ESC`: Press the ESC key
+- `ENTER`: Press the ENTER key
+- `FIND`: Open find dialog (CTRL+F)
+- `PASTE`: Paste clipboard content
+- `SLEEP <ms>`: Pause execution
+- `INPUTUSR`: Input username
+- `INPUTPASS`: Input password
+- `SCRNSHT`: Take screenshot
+- `INPUT-<text>`: Input specific text
+- `CHKSTS`: Check submission status
+
+## Status Checking (CHKSTS)
+The CHKSTS instruction performs the following:
+
+1. **Status Detection**: Searches for predefined status texts
+2. **Screenshot Capture**: Takes screenshots of relevant pages
+3. **WhatsApp Notification**: Sends status updates via WhatsApp
+4. **Multi-Tab Handling**: Opens status pages in new tabs
+5. **Cleanup**: Automatically closes tabs and deletes temporary files
+
+## Database Structure
+The SQLite database contains:
+- Journal_Link: Encrypted journal URL
+- Username: Encrypted username
+- Password: Encrypted password
+- Personal_Email: Alternative encrypted identifier
+
+## WhatsApp Integration
+- Automatic status notifications
+- Screenshot sharing
+- Error notifications
+- Webhook support for user requests
