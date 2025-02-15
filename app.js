@@ -604,15 +604,15 @@ async function handleScreenshotRequest(username, whatsappNumber) {
     }
 
     // Check if any new screenshots were generated
-    if (newlyGeneratedScreenshots.size === 0) {
-      await sendWhatsAppMessage(whatsappNumber, {
-        messaging_product: "whatsapp",
-        to: whatsappNumber,
-        type: "text",
-        text: { body: "No new updates found." }
-      });
-      return;
-    }
+    // if (newlyGeneratedScreenshots.size === 0) {
+    //   await sendWhatsAppMessage(whatsappNumber, {
+    //     messaging_product: "whatsapp",
+    //     to: whatsappNumber,
+    //     type: "text",
+    //     text: { body: "No new updates found." }
+    //   });
+    //   return;
+    // }
 
     // Send all captured screenshots at once
     await screenshotManager.sendToWhatsApp(whatsappNumber);
