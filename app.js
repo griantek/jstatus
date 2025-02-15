@@ -504,140 +504,155 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
 
 // Replace the existing handleScreenshotRequest function
 async function handleScreenshotRequest(username, whatsappNumber) {
-  try {
-    screenshotManager.clear();
+  // Add request to queue
+  await RequestQueue.add(whatsappNumber, async () => {
+    const sessionId = `${whatsappNumber}_${Date.now()}`;
+    const userFolder = path.join(process.env.SCREENSHOT_FOLDER, sessionId);
+    
+    if (!fs.existsSync(userFolder)) {
+      fs.mkdirSync(userFolder, { recursive: true });
+    }
+    
+    try {
+      screenshotManager.clear();
 
-    console.log("Searching for:", username);
+      console.log("Searching for:", username);
 
-    const rows = await new Promise((resolve, reject) => {
-      // First try to find by Personal_Email
-      db.all(
-        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
-        [username],
-        (err, emailRows) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          if (emailRows && emailRows.length > 0) {
-            console.log("Found by Personal_Email");
-            resolve(emailRows);
-            return;
-          }
-
-          // If no results by Personal_Email, try Client_Name
-          db.all(
-            "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
-            [username],
-            (err, clientRows) => {
-              if (err) {
-                reject(err);
-              } else {
-                console.log("Found by Client_Name");
-                resolve(clientRows);
-              }
+      const rows = await new Promise((resolve, reject) => {
+        // First try to find by Personal_Email
+        db.all(
+          "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
+          [username],
+          (err, emailRows) => {
+            if (err) {
+              reject(err);
+              return;
             }
-          );
+
+            if (emailRows && emailRows.length > 0) {
+              console.log("Found by Personal_Email");
+              resolve(emailRows);
+              return;
+            }
+
+            // If no results by Personal_Email, try Client_Name
+            db.all(
+              "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
+              [username],
+              (err, clientRows) => {
+                if (err) {
+                  reject(err);
+                } else {
+                  console.log("Found by Client_Name");
+                  resolve(clientRows);
+                }
+              }
+            );
+          }
+        );
+      });
+
+      if (!rows || rows.length === 0) {
+        await sendWhatsAppMessage(whatsappNumber, {
+          messaging_product: "whatsapp",
+          to: whatsappNumber,
+          type: "text",
+          text: { body: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again." }
+        });
+        return;
+      }
+
+      // Clear the set of new screenshots before processing
+      newlyGeneratedScreenshots.clear();
+
+      // Process automation and generate new screenshots
+      let matches = rows.map(row => {
+
+        // Try decryption with detailed logging
+        let decrypted = {};
+        try {
+          decrypted.url = row.url ? decrypt(row.url) : '';
+        } catch (e) {
+          console.error('URL decryption error:', e);
+          decrypted.url = '';
         }
-      );
-    });
 
-    if (!rows || rows.length === 0) {
+        try {
+          decrypted.username = row.username ? decrypt(row.username) : '';
+        } catch (e) {
+          console.error('Username decryption error:', e);
+          decrypted.username = '';
+        }
+
+        try {
+          decrypted.password = row.password ? decrypt(row.password) : '';
+        } catch (e) {
+          console.error('Password decryption error:', e);
+          decrypted.password = '';
+        }
+
+        return decrypted;
+      }).filter(match => {
+        const isValid = match.url && match.username && match.password;
+        return isValid;
+      });
+
+      if (matches.length === 0) {
+        await sendWhatsAppMessage(whatsappNumber, {
+          messaging_product: "whatsapp",
+          to: whatsappNumber,
+          type: "text",
+          text: { body: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance." }
+        });
+        return;
+      }
+
+      // Process each match (this will generate new screenshots)
+      for (const [index, match] of matches.entries()) {
+        await handleJournal(match, index + 1, whatsappNumber);
+      }
+
+      // Check if any new screenshots were generated
+      // if (newlyGeneratedScreenshots.size === 0) {
+      //   await sendWhatsAppMessage(whatsappNumber, {
+      //     messaging_product: "whatsapp",
+      //     to: whatsappNumber,
+      //     type: "text",
+      //     text: { body: "No new updates found." }
+      //   });
+      //   return;
+      // }
+
+      // Send all captured screenshots at once
+      await screenshotManager.sendToWhatsApp(whatsappNumber);
+
+      // Clear the screenshots set after processing
+      newlyGeneratedScreenshots.clear();
+
+      // Send completion message
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
         to: whatsappNumber,
         type: "text",
-        text: { body: "No account information found for the provided identifier. Please verify your Client Name or Email address and try again." }
+        text: { body: "All new status updates have been sent." }
       });
-      return;
-    }
 
-    // Clear the set of new screenshots before processing
-    newlyGeneratedScreenshots.clear();
-
-    // Process automation and generate new screenshots
-    let matches = rows.map(row => {
-
-      // Try decryption with detailed logging
-      let decrypted = {};
-      try {
-        decrypted.url = row.url ? decrypt(row.url) : '';
-      } catch (e) {
-        console.error('URL decryption error:', e);
-        decrypted.url = '';
-      }
-
-      try {
-        decrypted.username = row.username ? decrypt(row.username) : '';
-      } catch (e) {
-        console.error('Username decryption error:', e);
-        decrypted.username = '';
-      }
-
-      try {
-        decrypted.password = row.password ? decrypt(row.password) : '';
-      } catch (e) {
-        console.error('Password decryption error:', e);
-        decrypted.password = '';
-      }
-
-      return decrypted;
-    }).filter(match => {
-      const isValid = match.url && match.username && match.password;
-      return isValid;
-    });
-
-    if (matches.length === 0) {
+    } catch (error) {
+      console.error('Error in handleScreenshotRequest:', error);
+      screenshotManager.clear(); // Clean up on error
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
         to: whatsappNumber,
         type: "text",
-        text: { body: "We found your account, but there appear to be missing or incomplete journal credentials. Please contact support for assistance." }
+        text: { body: "An error occurred while processing your request. Please try again later." }
       });
-      return;
+    } finally {
+      // Cleanup
+      if (fs.existsSync(userFolder)) {
+        fs.rmSync(userFolder, { recursive: true, force: true });
+      }
     }
-
-    // Process each match (this will generate new screenshots)
-    for (const [index, match] of matches.entries()) {
-      await handleJournal(match, index + 1, whatsappNumber);
-    }
-
-    // Check if any new screenshots were generated
-    // if (newlyGeneratedScreenshots.size === 0) {
-    //   await sendWhatsAppMessage(whatsappNumber, {
-    //     messaging_product: "whatsapp",
-    //     to: whatsappNumber,
-    //     type: "text",
-    //     text: { body: "No new updates found." }
-    //   });
-    //   return;
-    // }
-
-    // Send all captured screenshots at once
-    await screenshotManager.sendToWhatsApp(whatsappNumber);
-
-    // Clear the screenshots set after processing
-    newlyGeneratedScreenshots.clear();
-
-    // Send completion message
-    await sendWhatsAppMessage(whatsappNumber, {
-      messaging_product: "whatsapp",
-      to: whatsappNumber,
-      type: "text",
-      text: { body: "All new status updates have been sent." }
-    });
-
-  } catch (error) {
-    console.error('Error in handleScreenshotRequest:', error);
-    screenshotManager.clear(); // Clean up on error
-    await sendWhatsAppMessage(whatsappNumber, {
-      messaging_product: "whatsapp",
-      to: whatsappNumber,
-      type: "text",
-      text: { body: "An error occurred while processing your request. Please try again later." }
-    });
-  }
+  });
 }
 
 // Add WhatsApp webhook routes
@@ -946,15 +961,20 @@ async function processRows(rows, res) {
 
 // Function to automate the process for a given match
 const automateProcess = async (match, order, whatsappNumber) => {
-  // console.log(`Processing: URL: ${match.url}, Username: ${match.username}, Password: ${match.password}`);
+  const sessionId = `${whatsappNumber}_${Date.now()}`;
+  const options = new chrome.Options();
+  
+  // Add required arguments for parallel Chrome instances
+  options.addArguments([
+    "--headless",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    `--user-data-dir=/tmp/chrome-${sessionId}`,
+    "--window-size=1920,1080"
+  ]);
 
   const driverPath = process.env.CHROME_DRIVER_PATH;
   const service = new chrome.ServiceBuilder(driverPath);
-  const options = new chrome.Options();
-
-  // Enable headless mode and set the maximum screen width
-  options.addArguments("--headless");
-  options.addArguments("--window-size=1920,1080");
 
   // Run Chrome in incognito mode to avoid storing cache
   options.addArguments("--incognito");
@@ -1098,6 +1118,77 @@ app.get('/crypto-info', (req, res) => {
   };
   res.json(info);
 });
+
+// Add request queue manager at the top
+const RequestQueue = {
+  queue: new Map(),
+  processing: new Map(),
+  
+  async add(userId, request) {
+    if (!this.queue.has(userId)) {
+      this.queue.set(userId, []);
+      this.processing.set(userId, false);
+    }
+    
+    const userQueue = this.queue.get(userId);
+    userQueue.push(request);
+    
+    // Process queue if not already processing
+    if (!this.processing.get(userId)) {
+      await this.processQueue(userId);
+    }
+  },
+  
+  async processQueue(userId) {
+    if (this.processing.get(userId)) return;
+    
+    this.processing.set(userId, true);
+    const userQueue = this.queue.get(userId);
+    
+    while (userQueue.length > 0) {
+      const request = userQueue.shift();
+      try {
+        await request();
+      } catch (error) {
+        console.error(`Error processing request for user ${userId}:`, error);
+      }
+    }
+    
+    this.processing.set(userId, false);
+  }
+};
+
+// Add periodic cleanup
+setInterval(() => {
+  const MAX_AGE = 30 * 60 * 1000; // 30 minutes
+  const now = Date.now();
+  
+  // Clean old screenshot folders
+  if (fs.existsSync(process.env.SCREENSHOT_FOLDER)) {
+    fs.readdirSync(process.env.SCREENSHOT_FOLDER).forEach(folder => {
+      const folderPath = path.join(process.env.SCREENSHOT_FOLDER, folder);
+      const stats = fs.statSync(folderPath);
+      
+      if (now - stats.mtime.getTime() > MAX_AGE) {
+        fs.rmSync(folderPath, { recursive: true, force: true });
+      }
+    });
+  }
+  
+  // Clean Chrome user data directories
+  if (fs.existsSync('/tmp')) {
+    fs.readdirSync('/tmp').forEach(dir => {
+      if (dir.startsWith('chrome-')) {
+        const dirPath = path.join('/tmp', dir);
+        const stats = fs.statSync(dirPath);
+        
+        if (now - stats.mtime.getTime() > MAX_AGE) {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+        }
+      }
+    });
+  }
+}, 15 * 60 * 1000); // Run every 15 minutes
 
 // Start the Express server
 app.listen(port, () => {
