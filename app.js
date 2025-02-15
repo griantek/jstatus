@@ -14,7 +14,7 @@ import { promisify } from 'util'; // Added for promisify
 dotenv.config();
 
 // Add environment variable logging
-console.log('\n YOU ARE RUNNING ON BRANCH PARELLEL PROCESSING \n'); 
+console.log('\n YOU ARE RUNNING ON BRANCH MAIN \n'); 
 console.log('\nEnvironment Variables Status:');
 console.log('============================');
 console.log('WhatsApp Configuration:');
