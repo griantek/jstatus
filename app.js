@@ -47,7 +47,6 @@ function decrypt(text) {
   try {
     if (!text) return '';
     
-    console.log('Decryption attempt for:', text.substring(0, 32) + '...');
     
     // Convert hex string to bytes
     const encryptedBytes = Buffer.from(text, 'hex');
@@ -68,16 +67,12 @@ function decrypt(text) {
       }
       
       const result = decrypted.toString('utf8');
-      console.log('Decryption successful:', result.substring(0, 32) + '...');
       return result;
     } catch (cryptoError) {
-      // If manual padding removal fails, try with auto padding
-      console.log('Trying with auto padding...');
       const decipherAuto = crypto.createDecipheriv(algorithm, key, iv);
       let decryptedAuto = decipherAuto.update(encryptedBytes);
       decryptedAuto = Buffer.concat([decryptedAuto, decipherAuto.final()]);
       const resultAuto = decryptedAuto.toString('utf8').trim();
-      console.log('Auto padding decryption result:', resultAuto.substring(0, 32) + '...');
       return resultAuto;
     }
   } catch (error) {
@@ -563,17 +558,11 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
     // Process automation and generate new screenshots
     let matches = rows.map(row => {
-      console.log('\nProcessing database row:', {
-        hasUrl: Boolean(row.url),
-        hasUsername: Boolean(row.username),
-        hasPassword: Boolean(row.password)
-      });
 
       // Try decryption with detailed logging
       let decrypted = {};
       try {
         decrypted.url = row.url ? decrypt(row.url) : '';
-        console.log('URL decryption:', decrypted.url ? 'success' : 'failed');
       } catch (e) {
         console.error('URL decryption error:', e);
         decrypted.url = '';
@@ -581,7 +570,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
       try {
         decrypted.username = row.username ? decrypt(row.username) : '';
-        console.log('Username decryption:', decrypted.username ? 'success' : 'failed');
       } catch (e) {
         console.error('Username decryption error:', e);
         decrypted.username = '';
@@ -589,7 +577,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
       try {
         decrypted.password = row.password ? decrypt(row.password) : '';
-        console.log('Password decryption:', decrypted.password ? 'success' : 'failed');
       } catch (e) {
         console.error('Password decryption error:', e);
         decrypted.password = '';
@@ -598,12 +585,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       return decrypted;
     }).filter(match => {
       const isValid = match.url && match.username && match.password;
-      console.log('Match validation:', {
-        hasUrl: Boolean(match.url),
-        hasUsername: Boolean(match.username),
-        hasPassword: Boolean(match.password),
-        isValid
-      });
       return isValid;
     });
 
