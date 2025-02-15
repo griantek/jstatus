@@ -45,21 +45,17 @@ const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 
 function decrypt(text) {
   try {
-    if (!text) return ''; // Return empty string if text is null/undefined
-    let decipher = crypto.createDecipheriv(algorithm, key, iv);
+    if (!text) return '';
+    
+    // Method 1: Simple decryption with createDecipheriv
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
     let decrypted = decipher.update(text, 'hex', 'utf8');
-    try {
-      decrypted += decipher.final('utf8');
-      return decrypted;
-    } catch (finalError) {
-      console.error('Decryption final error:', finalError);
-      console.error('Failed to decrypt text:', text);
-      return ''; // Return empty string on decryption error
-    }
+    decrypted += decipher.final('utf8');
+    return decrypted;
   } catch (error) {
     console.error('Decryption error:', error);
     console.error('Failed to decrypt text:', text);
-    return ''; // Return empty string on error
+    return '';
   }
 }
 
@@ -547,32 +543,47 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
     // Process automation and generate new screenshots
     let matches = rows.map(row => {
-      console.log('Processing row:', {
-        url: row.url ? row.url.substring(0, 20) + '...' : 'null',
-        username: row.username ? row.username.substring(0, 20) + '...' : 'null'
+      console.log('\nProcessing database row:', {
+        hasUrl: Boolean(row.url),
+        hasUsername: Boolean(row.username),
+        hasPassword: Boolean(row.password)
       });
-      
-      const decrypted = {
-        url: row.url ? decrypt(row.url) : '',
-        username: row.username ? decrypt(row.username) : '',
-        password: row.password ? decrypt(row.password) : ''
-      };
-      
-      console.log('Decrypted values (partial):', {
-        url: decrypted.url ? decrypted.url.substring(0, 20) + '...' : '',
-        username: decrypted.username ? decrypted.username.substring(0, 20) + '...' : ''
-      });
-      
+
+      // Try decryption with detailed logging
+      let decrypted = {};
+      try {
+        decrypted.url = row.url ? decrypt(row.url) : '';
+        console.log('URL decryption:', decrypted.url ? 'success' : 'failed');
+      } catch (e) {
+        console.error('URL decryption error:', e);
+        decrypted.url = '';
+      }
+
+      try {
+        decrypted.username = row.username ? decrypt(row.username) : '';
+        console.log('Username decryption:', decrypted.username ? 'success' : 'failed');
+      } catch (e) {
+        console.error('Username decryption error:', e);
+        decrypted.username = '';
+      }
+
+      try {
+        decrypted.password = row.password ? decrypt(row.password) : '';
+        console.log('Password decryption:', decrypted.password ? 'success' : 'failed');
+      } catch (e) {
+        console.error('Password decryption error:', e);
+        decrypted.password = '';
+      }
+
       return decrypted;
     }).filter(match => {
       const isValid = match.url && match.username && match.password;
-      if (!isValid) {
-        console.log('Filtered out invalid match:', {
-          hasUrl: Boolean(match.url),
-          hasUsername: Boolean(match.username),
-          hasPassword: Boolean(match.password)
-        });
-      }
+      console.log('Match validation:', {
+        hasUrl: Boolean(match.url),
+        hasUsername: Boolean(match.username),
+        hasPassword: Boolean(match.password),
+        isValid
+      });
       return isValid;
     });
 
@@ -991,6 +1002,80 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     port: port
   });
+});
+
+// Add this new test endpoint after your other routes
+app.post("/test-decrypt", async (req, res) => {
+  try {
+    const { encryptedText } = req.body;
+    
+    if (!encryptedText) {
+      return res.status(400).json({
+        error: "Missing encryptedText in request body"
+      });
+    }
+
+    console.log('Testing decryption for:', encryptedText);
+    
+    // Try both space-padded and regular decryption
+    const results = {
+      input: encryptedText,
+      method1: null,
+      method2: null,
+      method3: null
+    };
+
+    try {
+      // Method 1: Original method
+      const decipher1 = crypto.createDecipheriv(algorithm, key, iv);
+      let decrypted1 = decipher1.update(encryptedText, 'hex', 'utf8');
+      decrypted1 += decipher1.final('utf8');
+      results.method1 = decrypted1;
+    } catch (e) {
+      results.method1 = `Error: ${e.message}`;
+    }
+
+    try {
+      // Method 2: Space padding removal
+      const decipher2 = crypto.createDecipheriv(algorithm, key, iv);
+      decipher2.setAutoPadding(false);
+      const encryptedBuffer = Buffer.from(encryptedText, 'hex');
+      let decrypted2 = decipher2.update(encryptedBuffer);
+      decrypted2 = Buffer.concat([decrypted2, decipher2.final()]);
+      while (decrypted2[decrypted2.length - 1] === 0x20) {
+        decrypted2 = decrypted2.slice(0, -1);
+      }
+      results.method2 = decrypted2.toString('utf8');
+    } catch (e) {
+      results.method2 = `Error: ${e.message}`;
+    }
+
+    try {
+      // Method 3: Legacy format
+      const decipher3 = crypto.createDecipher(algorithm, process.env.ENCRYPTION_KEY);
+      let decrypted3 = decipher3.update(encryptedText, 'hex', 'utf8');
+      decrypted3 += decipher3.final('utf8');
+      results.method3 = decrypted3;
+    } catch (e) {
+      results.method3 = `Error: ${e.message}`;
+    }
+
+    res.json({
+      results,
+      encryptionConfig: {
+        algorithm,
+        keyLength: key.length,
+        ivLength: iv.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Decryption test error:', error);
+    res.status(500).json({
+      error: 'Decryption test failed',
+      message: error.message
+    });
+  }
 });
 
 // Start the Express server
