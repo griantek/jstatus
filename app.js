@@ -47,23 +47,23 @@ function decrypt(text) {
   try {
     if (!text) return '';
     
-    // Method 1: Simple decryption with createDecipheriv
+    // Convert hex string to bytes
+    const encryptedBytes = Buffer.from(text, 'hex');
+    
+    // Create decipher
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    let decrypted = decipher.update(text, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    
+    // Decrypt
+    let decrypted = decipher.update(encryptedBytes);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    
+    // Convert to string and strip whitespace (equivalent to Python's strip())
+    return decrypted.toString('utf8').trim();
   } catch (error) {
-    console.error('Decryption error:', error);
-    console.error('Failed to decrypt text:', text);
-    return '';
+    // Return original text on error (same as Python's except clause)
+    console.log('Decryption failed, returning original text:', error);
+    return text;
   }
-}
-
-function encrypt(text) {
-  let cipher = crypto.createCipheriv(algorithm, key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return encrypted;
 }
 
 // Initialize SQLite database
