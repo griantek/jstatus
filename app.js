@@ -120,6 +120,9 @@ const screenshotManager = {
   },
 
   getUserFolder(userId) {
+    if (!userId) {
+      throw new Error("User ID is required to get user folder");
+    }
     const userFolder = path.join(this.baseFolder, userId.replace(/[^a-zA-Z0-9]/g, '_'));
     if (!fs.existsSync(userFolder)) {
       fs.mkdirSync(userFolder, { recursive: true });
@@ -128,6 +131,9 @@ const screenshotManager = {
   },
 
   createSession(userId) {
+    if (!userId) {
+      throw new Error("User ID is required to create session");
+    }
     const sessionId = uuidv4();
     const sessionFolder = path.join(this.getUserFolder(userId), sessionId);
     
@@ -144,11 +150,14 @@ const screenshotManager = {
       lastAccessed: Date.now()
     };
 
-    this.sessions.set(sessionId, session);
+    this.sessions.set(userId, session);
     return session;
   },
 
   async capture(driver, description, userId) {
+    if (!userId) {
+      throw new Error("User ID is required to capture screenshot");
+    }
     const session = this.sessions.get(userId) || this.createSession(userId);
     session.lastAccessed = Date.now();
 
@@ -171,6 +180,9 @@ const screenshotManager = {
   },
 
   async sendToWhatsApp(whatsappNumber, userId) {
+    if (!userId) {
+      throw new Error("User ID is required to send screenshots to WhatsApp");
+    }
     const session = this.sessions.get(userId);
     if (!session) return;
 
@@ -187,20 +199,31 @@ const screenshotManager = {
     }
 
     try {
+      // Sort screenshots by creation time
+      screenshots.sort((a, b) => {
+        const aTime = fs.statSync(a).birthtimeMs;
+        const bTime = fs.statSync(b).birthtimeMs;
+        return aTime - bTime;
+      });
+
+      // Send all screenshots
       for (const screenshotPath of screenshots) {
         if (!fs.existsSync(screenshotPath)) continue;
 
         try {
           const caption = `Status update: ${path.basename(screenshotPath, '.png')}`;
           await sendWhatsAppImage(whatsappNumber, screenshotPath, caption);
-        } finally {
-          if (fs.existsSync(screenshotPath)) {
-            fs.unlinkSync(screenshotPath);
-          }
+        } catch (error) {
+          console.error(`Error sending screenshot ${screenshotPath}:`, error);
         }
       }
+
+      // Wait 5 seconds before cleanup
+      await new Promise(resolve => setTimeout(resolve, 5000));
       
-      session.screenshots.clear();
+      // Clean up all screenshots and folder
+      this.clearSession(userId);
+      
     } catch (error) {
       console.error('Error in sendToWhatsApp:', error);
       throw error;
@@ -208,6 +231,9 @@ const screenshotManager = {
   },
 
   clearSession(userId) {
+    if (!userId) {
+      throw new Error("User ID is required to clear session");
+    }
     const session = this.sessions.get(userId);
     if (!session) return;
 
@@ -398,7 +424,7 @@ async function executeInstructions(driver, username, password, order, journalLin
         console.log(`Clicked on element with target: ${clickTarget}`);
       } else if (trimmedInstruction === "CHKSTS") {
         if (journalLink.includes("editorialmanager")) {
-          await handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber);
+          await handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber, userId);
         } else if (journalLink.includes("manuscriptcentral")) {
           await handleManuscriptCentralCHKSTS(driver, order, foundTexts);
           await driver.sleep(20000); // Add a delay to ensure the element is focused
@@ -435,7 +461,7 @@ async function executeInstructions(driver, username, password, order, journalLin
 }
 
 // Define CHKSTS handlers for each journal type
-async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber) {
+async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber, userId) {
   let found = false;
   const textCollection = [
     "Submissions Sent Back to Author",
@@ -470,18 +496,9 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
       await driver.switchTo().window(tabs[1]);
       await driver.sleep(10000);
 
-      // Take screenshot
+      // Take screenshot and save (don't send yet)
       console.log("Taking screenshot of the current page...");
-      const screenshotPath = await screenshotManager.capture(driver, text);
-      try {
-        await sendWhatsAppImage(whatsappNumber, screenshotPath, text);
-      } catch (error) {
-        console.error('Error sending screenshot:', error);
-      } finally {
-        if (fs.existsSync(screenshotPath)) {
-          fs.unlinkSync(screenshotPath);
-        }
-      }
+      await screenshotManager.capture(driver, text, userId);
 
       // Close tab & switch back
       await driver.close();
@@ -512,18 +529,9 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
       await driver.switchTo().window(tabs[1]);
       await driver.sleep(10000);
 
-      // Take screenshot
+      // Take screenshot and save (don't send yet)
       console.log("Taking screenshot of the current page...");
-      const screenshotPath = await screenshotManager.capture(driver, text);
-      try {
-        await sendWhatsAppImage(whatsappNumber, screenshotPath, text);
-      } catch (error) {
-        console.error('Error sending screenshot:', error);
-      } finally {
-        if (fs.existsSync(screenshotPath)) {
-          fs.unlinkSync(screenshotPath);
-        }
-      }
+      await screenshotManager.capture(driver, text, userId);
 
       // Close tab & switch back
       await driver.close();
