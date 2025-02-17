@@ -472,29 +472,60 @@ async function executeInstructions(driver, username, password, order, journalLin
       } else if (trimmedInstruction === "CHKREGQS") {
         console.log("Handling survey popup check...");
         try {
-          // First two tabs
-          await driver.actions().sendKeys(Key.TAB).perform();
-          await driver.actions().sendKeys(Key.TAB).perform();
-          
-          // Get text after two tabs
-          let activeElement = await switchToActiveElement(driver);
-          let text = await activeElement.getText();
-          console.log("Text after 2 tabs:", text);
-          
-          // Next three tabs and get text for each
-          for (let i = 0; i < 3; i++) {
+          const targetText = "* Self-report your data to improve equity in research";
+          let found = false;
+          let attempts = 0;
+          const maxAttempts = 20;
+      
+          // Keep tabbing until we find the target text
+          while (!found && attempts < maxAttempts) {
             await driver.actions().sendKeys(Key.TAB).perform();
-            activeElement = await switchToActiveElement(driver);
-            text = await activeElement.getText();
-            console.log(`Text after additional tab ${i + 1}:`, text);
+            let activeElement = await switchToActiveElement(driver);
+            let text = await activeElement.getText();
+            console.log("Current text:", text);
+      
+            if (text.includes(targetText)) {
+              console.log("Found target text, executing sequence...");
+              found = true;
+              
+              // Store the main window handle
+              const mainWindow = await driver.getWindowHandle();
+              
+              // Click to open the popup window
+              await driver.actions().sendKeys(Key.RETURN).perform();
+              await driver.sleep(2000); // Wait for popup window
+              
+              // Get all window handles
+              const handles = await driver.getAllWindowHandles();
+              
+              // Switch to popup window (the new handle that isn't the main window)
+              const popupWindow = handles.find(handle => handle !== mainWindow);
+              if (popupWindow) {
+                // Switch to popup window
+                await driver.switchTo().window(popupWindow);
+                // Close the popup window
+                await driver.close();
+                // Switch back to main window
+                await driver.switchTo().window(mainWindow);
+              }
+              
+              // Do 2 tabs
+              await driver.actions().sendKeys(Key.TAB).perform();
+              await driver.actions().sendKeys(Key.TAB).perform();
+              
+              // Press Enter
+              await driver.actions().sendKeys(Key.RETURN).perform();
+              
+              // Final timeout
+              await driver.sleep(5000);
+              break;
+            }
+            
+            attempts++;
           }
           
-          // Five reverse tabs (SHIFT+TAB)
-          for (let i = 0; i < 5; i++) {
-            await driver.actions().keyDown(Key.SHIFT).sendKeys(Key.TAB).keyUp(Key.SHIFT).perform();
-            activeElement = await switchToActiveElement(driver);
-            text = await activeElement.getText();
-            console.log(`Text after reverse tab ${i + 1}:`, text);
+          if (!found) {
+            console.log("Survey text not found after maximum attempts");
           }
           
           console.log("Survey popup check sequence completed");
