@@ -469,6 +469,38 @@ async function executeInstructions(driver, username, password, order, journalLin
         }
         await inputElement.click();
         console.log(`Clicked on element with target: ${clickTarget}`);
+      } else if (trimmedInstruction === "CHKREGQS") {
+        console.log("Handling survey popup check...");
+        try {
+          // First two tabs
+          await driver.actions().sendKeys(Key.TAB).perform();
+          await driver.actions().sendKeys(Key.TAB).perform();
+          
+          // Get text after two tabs
+          let activeElement = await switchToActiveElement(driver);
+          let text = await activeElement.getText();
+          console.log("Text after 2 tabs:", text);
+          
+          // Next three tabs and get text for each
+          for (let i = 0; i < 3; i++) {
+            await driver.actions().sendKeys(Key.TAB).perform();
+            activeElement = await switchToActiveElement(driver);
+            text = await activeElement.getText();
+            console.log(`Text after additional tab ${i + 1}:`, text);
+          }
+          
+          // Five reverse tabs (SHIFT+TAB)
+          for (let i = 0; i < 5; i++) {
+            await driver.actions().keyDown(Key.SHIFT).sendKeys(Key.TAB).keyUp(Key.SHIFT).perform();
+            activeElement = await switchToActiveElement(driver);
+            text = await activeElement.getText();
+            console.log(`Text after reverse tab ${i + 1}:`, text);
+          }
+          
+          console.log("Survey popup check sequence completed");
+        } catch (error) {
+          console.log("Error during survey popup check:", error);
+        }
       } else if (trimmedInstruction === "CHKSTS") {
         if (journalLink.includes("editorialmanager")) {
           await handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber, userId);
