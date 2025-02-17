@@ -108,14 +108,25 @@ const requestQueue = new PQueue({concurrency: 1});
 // Add user session tracking
 const userSessions = new Map();
 
-// Modify screenshotManager to handle user-specific directories
+// Modify screenshotManager to handle root-level folder management
 const screenshotManager = {
   baseFolder: process.env.SCREENSHOT_FOLDER,
   sessions: new Map(),
 
   async init() {
-    if (!fs.existsSync(this.baseFolder)) {
-      fs.mkdirSync(this.baseFolder, { recursive: true });
+    try {
+      if (!fs.existsSync(this.baseFolder)) {
+        fs.mkdirSync(this.baseFolder, { 
+          recursive: true,
+          mode: 0o777 // Full read/write/execute permissions for everyone
+        });
+      } else {
+        // Update permissions on existing folder
+        fs.chmodSync(this.baseFolder, 0o777);
+      }
+    } catch (error) {
+      console.error('Error initializing screenshot manager:', error);
+      throw error;
     }
   },
 
@@ -125,7 +136,11 @@ const screenshotManager = {
     }
     const userFolder = path.join(this.baseFolder, userId.replace(/[^a-zA-Z0-9]/g, '_'));
     if (!fs.existsSync(userFolder)) {
-      fs.mkdirSync(userFolder, { recursive: true });
+      // Create folder with full permissions
+      fs.mkdirSync(userFolder, { 
+        recursive: true,
+        mode: 0o777 // Full read/write/execute permissions for everyone
+      });
     }
     return userFolder;
   },
@@ -138,7 +153,11 @@ const screenshotManager = {
     const sessionFolder = path.join(this.getUserFolder(userId), sessionId);
     
     if (!fs.existsSync(sessionFolder)) {
-      fs.mkdirSync(sessionFolder, { recursive: true });
+      // Create session folder with full permissions
+      fs.mkdirSync(sessionFolder, { 
+        recursive: true,
+        mode: 0o777 // Full read/write/execute permissions for everyone
+      });
     }
 
     const session = {
@@ -243,47 +262,29 @@ const screenshotManager = {
       await new Promise(resolve => setTimeout(resolve, 5000));
       console.log('Cleanup delay completed, proceeding with cleanup...');
       
+      // Delete the root user folder instead of just the session
+      const userFolder = this.getUserFolder(userId);
+      if (fs.existsSync(userFolder)) {
+        try {
+          // Force removal of directory and all contents
+          fs.rmSync(userFolder, { 
+            recursive: true, 
+            force: true 
+          });
+          console.log(`Successfully deleted user folder: ${userFolder}`);
+        } catch (error) {
+          console.error(`Error deleting user folder ${userFolder}:`, error);
+          // Fallback to session cleanup if root deletion fails
+          this.clearSession(userId);
+        }
+      }
+      
+      // Remove the session from memory
+      this.sessions.delete(userId);
+      
     } catch (error) {
       console.error('Error in sendToWhatsApp:', error);
       throw error;
-    } finally {
-      // Clean up in finally block to ensure it happens
-      try {
-        this.clearSession(userId);
-      } catch (cleanupError) {
-        console.error('Error during cleanup:', cleanupError);
-      }
-    }
-  },
-
-  clearSession(userId) {
-    if (!userId) {
-      throw new Error("User ID is required to clear session");
-    }
-    const session = this.sessions.get(userId);
-    if (!session) return;
-
-    try {
-      // Only clear screenshots for this specific user's session
-      for (const filepath of session.screenshots) {
-        try {
-          if (fs.existsSync(filepath)) {
-            fs.unlinkSync(filepath);
-          }
-        } catch (error) {
-          console.error(`Error deleting ${filepath}:`, error);
-        }
-      }
-
-      // Only remove this user's session folder
-      if (fs.existsSync(session.folder)) {
-        fs.rmSync(session.folder, { recursive: true });
-      }
-
-      this.sessions.delete(userId);
-      console.log(`Cleaned up session for user: ${userId}`);
-    } catch (error) {
-      console.error(`Error cleaning up session for user ${userId}:`, error);
     }
   },
 
@@ -297,7 +298,15 @@ const screenshotManager = {
 
     for (const [userId, session] of this.sessions.entries()) {
       if (now - session.lastAccessed > MAX_SESSION_AGE) {
-        this.clearSession(userId);
+        try {
+          const userFolder = this.getUserFolder(userId);
+          if (fs.existsSync(userFolder)) {
+            fs.rmSync(userFolder, { recursive: true, force: true });
+          }
+          this.sessions.delete(userId);
+        } catch (error) {
+          console.error(`Error cleaning up old session for user ${userId}:`, error);
+        }
       }
     }
   }
@@ -625,7 +634,7 @@ async function sendWhatsAppImage(to, imagePath, caption) {
       type: "image",
       image: {
         id: mediaId,
-        caption: caption
+        caption: ''
       }
     };
 
