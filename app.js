@@ -494,6 +494,7 @@ async function executeInstructions(driver, username, password, order, journalLin
               // Click to open the popup window
               await driver.actions().sendKeys(Key.RETURN).perform();
               await driver.sleep(2000); // Wait for popup window
+              await screenshotManager.capture(driver, username, userId);
               
               // Get all window handles
               const handles = await driver.getAllWindowHandles();
