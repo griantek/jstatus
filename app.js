@@ -477,7 +477,6 @@ async function executeInstructions(driver, username, password, order, journalLin
           let attempts = 0;
           const maxAttempts = 20;
       
-          // Keep tabbing until we find the target text
           while (!found && attempts < maxAttempts) {
             await driver.actions().sendKeys(Key.TAB).perform();
             let activeElement = await switchToActiveElement(driver);
@@ -488,27 +487,24 @@ async function executeInstructions(driver, username, password, order, journalLin
               console.log("Found target text, executing sequence...");
               found = true;
               
-              // Store the main window handle
-              const mainWindow = await driver.getWindowHandle();
+              // Take screenshot before clicking
+              await screenshotManager.capture(driver, username, userId);
               
               // Click to open the popup window
               await driver.actions().sendKeys(Key.RETURN).perform();
               await driver.sleep(2000); // Wait for popup window
+              
+              // Take screenshot after popup opens
               await screenshotManager.capture(driver, username, userId);
               
-              // Get all window handles
-              const handles = await driver.getAllWindowHandles();
+              // Send Alt+F4 to close the popup window
+              await driver.actions()
+                .keyDown(Key.ALT)
+                .sendKeys(Key.F4)
+                .keyUp(Key.ALT)
+                .perform();
               
-              // Switch to popup window (the new handle that isn't the main window)
-              const popupWindow = handles.find(handle => handle !== mainWindow);
-              if (popupWindow) {
-                // Switch to popup window
-                await driver.switchTo().window(popupWindow);
-                // Close the popup window
-                await driver.close();
-                // Switch back to main window
-                await driver.switchTo().window(mainWindow);
-              }
+              await driver.sleep(1000); // Wait for popup to close
               
               // Do 2 tabs
               await driver.actions().sendKeys(Key.TAB).perform();
