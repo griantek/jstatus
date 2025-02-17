@@ -504,12 +504,18 @@ async function executeInstructions(driver, username, password, order, journalLin
     console.log(`Execution completed in ${totalTime} seconds.`);
   } catch (error) {
     console.error("Error during instruction execution:", error);
+    // Ensure screenshots are still sent even if there's an error
+    await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
   }
 }
 
 // Define CHKSTS handlers for each journal type
 async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber, userId) {
+  console.log("Starting Editorial Manager status check...");
   let found = false;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 20; // Increase max attempts
+
   const textCollection = [
     "Submissions Sent Back to Author",
     "Incomplete Submissions",
@@ -526,66 +532,112 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
     "Submission Transfers Waiting for Author's Approval"
   ];
 
-  while (!found) {
-    await driver.actions().sendKeys(Key.TAB).perform();
-    // await driver.sleep(1000);
-    let activeElement = await switchToActiveElement(driver);
-    let text = await activeElement.getText();
+  try {
+    while (!found && attempts < MAX_ATTEMPTS) {
+      attempts++;
+      console.log(`Attempt ${attempts} to find status text...`);
+      
+      await driver.actions().sendKeys(Key.TAB).perform();
+      //await driver.sleep(1000); // Small delay between tabs
+      
+      let activeElement = await switchToActiveElement(driver);
+      let text = await activeElement.getText();
+      //console.log(`Current text: ${text}`);
 
-    if (textCollection.includes(text) && !foundTexts.includes(text)) {
-      console.log(`Found this guy'${text}'.`);
-      found = true;
-      foundTexts.push(text);
+      if (textCollection.includes(text) && !foundTexts.includes(text)) {
+        console.log(`Found status text: ${text}`);
+        found = true;
+        foundTexts.push(text);
 
-      // Open in new tab
-      await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
-      const tabs = await driver.getAllWindowHandles();
-      await driver.switchTo().window(tabs[1]);
-      await driver.sleep(10000);
+        try {
+          // Open in new tab
+          await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
+          const tabs = await driver.getAllWindowHandles();
+          //console.log(`Number of tabs: ${tabs.length}`);
+          
+          await driver.switchTo().window(tabs[1]);
+          await driver.sleep(5000);
 
-      // Take screenshot and save (don't send yet)
-      console.log("Taking screenshot of the current page...");
-      await screenshotManager.capture(driver, text, userId);
+          // Take screenshot
+          console.log(`Taking screenshot for: ${text}`);
+          await screenshotManager.capture(driver, text, userId);
 
-      // Close tab & switch back
-      await driver.close();
-      await driver.switchTo().window(tabs[0]);
-      await driver.actions().sendKeys(Key.HOME).perform();
-      await driver.sleep(2000);
-      break;
+          // Close tab & switch back
+          await driver.close();
+          await driver.switchTo().window(tabs[0]);
+          await driver.actions().sendKeys(Key.HOME).perform();
+          await driver.sleep(2000);
+          break;
+        } catch (error) {
+          console.error('Error handling tab operations:', error);
+          // Try to recover by switching back to first tab
+          const tabs = await driver.getAllWindowHandles();
+          await driver.switchTo().window(tabs[0]);
+        }
+      }
     }
-  }
 
-  let notFoundInCollection = false;
-  while (!notFoundInCollection) {
-    await driver.actions().sendKeys(Key.TAB).perform();
-    await driver.sleep(2000);
-    let activeElement = await switchToActiveElement(driver);
-    let text = await activeElement.getText();
-
-    if (text && !textCollection.includes(text)) {
-      console.log(`Found something not in collection: '${text}'`);
-      notFoundInCollection = true;
-    } else if (textCollection.includes(text) && !foundTexts.includes(text)) {
-      console.log(`Found this guy again: '${text}'`);
-      foundTexts.push(text);
-
-      // Open in new tab
-      await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
-      const tabs = await driver.getAllWindowHandles();
-      await driver.switchTo().window(tabs[1]);
-      await driver.sleep(10000);
-
-      // Take screenshot and save (don't send yet)
-      console.log("Taking screenshot of the current page...");
-      await screenshotManager.capture(driver, text, userId);
-
-      // Close tab & switch back
-      await driver.close();
-      await driver.switchTo().window(tabs[0]);
-      await driver.actions().sendKeys(Key.HOME).perform();
-      await driver.sleep(2000);
+    if (!found) {
+      console.log("No status texts found after maximum attempts");
+      return;
     }
+
+    // Continue checking for more statuses
+    let notFoundInCollection = false;
+    attempts = 0;
+    
+    while (!notFoundInCollection && attempts < MAX_ATTEMPTS) {
+      attempts++;
+      console.log(`Checking for additional statuses, attempt ${attempts}...`);
+      
+      await driver.actions().sendKeys(Key.TAB).perform();
+      await driver.sleep(1000);
+      
+      let activeElement = await switchToActiveElement(driver);
+      let text = await activeElement.getText();
+
+      if (!text) {
+        console.log("Empty text found, continuing...");
+        continue;
+      }
+
+      console.log(`Additional text found: ${text}`);
+
+      if (!textCollection.includes(text)) {
+        console.log("Found text not in collection, stopping search");
+        notFoundInCollection = true;
+      } else if (!foundTexts.includes(text)) {
+        console.log(`Found additional status: ${text}`);
+        foundTexts.push(text);
+
+        try {
+          // Open in new tab
+          await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
+          const tabs = await driver.getAllWindowHandles();
+          console.log(`Number of tabs: ${tabs.length}`);
+          
+          await driver.switchTo().window(tabs[1]);
+          await driver.sleep(5000);
+
+          // Take screenshot
+          console.log(`Taking screenshot for: ${text}`);
+          await screenshotManager.capture(driver, text, userId);
+
+          // Close tab & switch back
+          await driver.close();
+          await driver.switchTo().window(tabs[0]);
+          await driver.actions().sendKeys(Key.HOME).perform();
+          await driver.sleep(2000);
+        } catch (error) {
+          console.error('Error handling additional status:', error);
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('Error in handleEditorialManagerCHKSTS:', error);
+  } finally {
+    console.log("Editorial Manager status check completed");
   }
 }
 
@@ -974,7 +1026,7 @@ const handleJournal = async (match, order, whatsappNumber, userId) => {
     await handleCGScholar(match, order, whatsappNumber, userId);
   } else if (url.includes("thescipub")) {
     await handleTheSciPub(match, order, whatsappNumber, userId);
-  } else if (url.includes("wiley.com")) {
+  } else if (url.includes("wiley.scienceconnect.io")) {
     await handleWiley(match, order, whatsappNumber, userId);
   } else if (url.includes("periodicos")) {
     await handlePeriodicos(match, order, whatsappNumber, userId);
@@ -1141,20 +1193,30 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
   ]);
 
   try {
+    console.log(`Starting automation for URL: ${match.url}`);
     const driver = await new Builder()
       .forBrowser("chrome")
       .setChromeOptions(options)
       .build();
     
     session.driver = driver;
-    await driver.get(match.url);
+
+    // Add timeout for initial navigation
+    await Promise.race([
+      driver.get(match.url),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Navigation timeout')), 30000)
+      )
+    ]);
+
     await driver.sleep(5000);
     
-    // Pass session to executeInstructions
     await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber, userId);
     
   } catch (error) {
     console.error("Automation error:", error);
+    // Ensure screenshots are sent even if automation fails
+    await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
   } finally {
     await SessionManager.cleanupSession(sessionId);
   }
