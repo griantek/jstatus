@@ -262,30 +262,41 @@ const screenshotManager = {
       await new Promise(resolve => setTimeout(resolve, 5000));
       console.log('Cleanup delay completed, proceeding with cleanup...');
       
-      // Delete the root user folder instead of just the session
-      const userFolder = this.getUserFolder(userId);
-      if (fs.existsSync(userFolder)) {
-        try {
-          // Force removal of directory and all contents
-          fs.rmSync(userFolder, { 
-            recursive: true, 
-            force: true 
-          });
-          console.log(`Successfully deleted user folder: ${userFolder}`);
-        } catch (error) {
-          console.error(`Error deleting user folder ${userFolder}:`, error);
-          // Fallback to session cleanup if root deletion fails
-          this.clearSession(userId);
-        }
-      }
-      
-      // Remove the session from memory
-      this.sessions.delete(userId);
+      // Use the new deleteUserFolder method
+      await this.deleteUserFolder(userId);
       
     } catch (error) {
       console.error('Error in sendToWhatsApp:', error);
       throw error;
     }
+  },
+
+  async deleteUserFolder(userId) {
+    if (!userId) {
+      throw new Error("User ID is required to delete user folder");
+    }
+
+    try {
+      const userFolder = this.getUserFolder(userId);
+      if (fs.existsSync(userFolder)) {
+        // Force removal of directory and all contents
+        fs.rmSync(userFolder, { 
+          recursive: true, 
+          force: true 
+        });
+        console.log(`Successfully deleted user folder: ${userFolder}`);
+      }
+      // Remove any session data
+      this.sessions.delete(userId);
+    } catch (error) {
+      console.error(`Error deleting user folder for ${userId}:`, error);
+    }
+  },
+
+  // Replace clearSession with simplified version
+  clearSession(userId) {
+    if (!userId) return;
+    this.deleteUserFolder(userId);
   },
 
   // Remove the clear() method as it's no longer needed
@@ -684,7 +695,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       session.lastAccessed = Date.now();
 
       // Rest of the handleScreenshotRequest implementation...
-      screenshotManager.clearSession(username);
+      await screenshotManager.deleteUserFolder(username);
 
       console.log("Searching for:", username);
 
@@ -805,7 +816,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       throw error;
     } finally {
       // Cleanup
-      screenshotManager.clearSession(username);
+      await screenshotManager.deleteUserFolder(username);
       console.log(`Completed request ${requestId}`);
     }
   });
