@@ -16,7 +16,7 @@ import PQueue from 'p-queue';
 dotenv.config();
 
 // Add environment variable logging
-console.log('\n YOU ARE RUNNING ON BRANCH MAIN \n'); 
+console.log('\n YOU ARE RUNNING ON BRANCH MAIN \n');
 console.log('\nEnvironment Variables Status:');
 console.log('============================');
 console.log('WhatsApp Configuration:');
@@ -49,26 +49,26 @@ const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 function decrypt(text) {
   try {
     if (!text) return '';
-    
-    
+
+
     // Convert hex string to bytes
     const encryptedBytes = Buffer.from(text, 'hex');
-    
+
     // Create decipher with auto padding disabled
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
     decipher.setAutoPadding(false);
-    
+
     // Decrypt
     let decrypted;
     try {
       decrypted = decipher.update(encryptedBytes);
       decrypted = Buffer.concat([decrypted, decipher.final()]);
-      
+
       // Remove space padding manually (similar to Python implementation)
       while (decrypted.length > 0 && decrypted[decrypted.length - 1] === 32) { // 32 is ASCII for space
         decrypted = decrypted.slice(0, -1);
       }
-      
+
       const result = decrypted.toString('utf8');
       return result;
     } catch (cryptoError) {
@@ -103,7 +103,7 @@ async function switchToActiveElement(driver) {
 }
 
 // Add request queue to manage concurrent requests
-const requestQueue = new PQueue({concurrency: 1});
+const requestQueue = new PQueue({ concurrency: 1 });
 
 // Add user session tracking
 const userSessions = new Map();
@@ -116,7 +116,7 @@ const screenshotManager = {
   async init() {
     try {
       if (!fs.existsSync(this.baseFolder)) {
-        fs.mkdirSync(this.baseFolder, { 
+        fs.mkdirSync(this.baseFolder, {
           recursive: true,
           mode: 0o777 // Full read/write/execute permissions for everyone
         });
@@ -137,7 +137,7 @@ const screenshotManager = {
     const userFolder = path.join(this.baseFolder, userId.replace(/[^a-zA-Z0-9]/g, '_'));
     if (!fs.existsSync(userFolder)) {
       // Create folder with full permissions
-      fs.mkdirSync(userFolder, { 
+      fs.mkdirSync(userFolder, {
         recursive: true,
         mode: 0o777 // Full read/write/execute permissions for everyone
       });
@@ -151,10 +151,10 @@ const screenshotManager = {
     }
     const sessionId = uuidv4();
     const sessionFolder = path.join(this.getUserFolder(userId), sessionId);
-    
+
     if (!fs.existsSync(sessionFolder)) {
       // Create session folder with full permissions
-      fs.mkdirSync(sessionFolder, { 
+      fs.mkdirSync(sessionFolder, {
         recursive: true,
         mode: 0o777 // Full read/write/execute permissions for everyone
       });
@@ -189,7 +189,7 @@ const screenshotManager = {
 
       const image = await driver.takeScreenshot();
       await fs.promises.writeFile(filepath, image, 'base64');
-      
+
       session.screenshots.add(filepath);
       console.log(`Screenshot saved: ${filepath}`);
       return filepath;
@@ -212,7 +212,7 @@ const screenshotManager = {
 
     const screenshots = Array.from(session.screenshots);
     console.log(`Found ${screenshots.length} screenshots for user ${userId}`);
-    
+
     if (screenshots.length === 0) {
       await sendWhatsAppMessage(whatsappNumber, {
         messaging_product: "whatsapp",
@@ -261,10 +261,10 @@ const screenshotManager = {
       // Wait 5 seconds before cleanup
       await new Promise(resolve => setTimeout(resolve, 5000));
       console.log('Cleanup delay completed, proceeding with cleanup...');
-      
+
       // Use the new deleteUserFolder method
       await this.deleteUserFolder(userId);
-      
+
     } catch (error) {
       console.error('Error in sendToWhatsApp:', error);
       throw error;
@@ -280,9 +280,9 @@ const screenshotManager = {
       const userFolder = this.getUserFolder(userId);
       if (fs.existsSync(userFolder)) {
         // Force removal of directory and all contents
-        fs.rmSync(userFolder, { 
-          recursive: true, 
-          force: true 
+        fs.rmSync(userFolder, {
+          recursive: true,
+          force: true
         });
         console.log(`Successfully deleted user folder: ${userFolder}`);
       }
@@ -326,15 +326,15 @@ const screenshotManager = {
 // Add a session manager to track user sessions
 const SessionManager = {
   sessions: new Map(),
-  
+
   createSession(userId) {
     const sessionId = `${userId}_${Date.now()}`;
     const sessionFolder = path.join(process.env.SCREENSHOT_FOLDER, sessionId);
-    
+
     if (!fs.existsSync(sessionFolder)) {
       fs.mkdirSync(sessionFolder, { recursive: true });
     }
-    
+
     this.sessions.set(sessionId, {
       userId,
       folder: sessionFolder,
@@ -342,10 +342,10 @@ const SessionManager = {
       createdAt: new Date(),
       driver: null
     });
-    
+
     return sessionId;
   },
-  
+
   async cleanupSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
@@ -359,7 +359,7 @@ const SessionManager = {
       this.sessions.delete(sessionId);
     }
   },
-  
+
   getSession(sessionId) {
     return this.sessions.get(sessionId);
   }
@@ -421,7 +421,7 @@ async function executeInstructions(driver, username, password, order, journalLin
         // let activeElement = await switchToActiveElement(driver);
         // let text = await activeElement.getText();
         // console.log(`Current highlighted text: ${text}`);
-        // await driver.sleep(5000);
+        // await driver.sleep(2000);
       } else if (trimmedInstruction === "SPACE") {
         await driver.actions().sendKeys(Key.SPACE).perform();
       } else if (trimmedInstruction === "ESC") {
@@ -429,9 +429,9 @@ async function executeInstructions(driver, username, password, order, journalLin
       } else if (trimmedInstruction === "ENTER") {
         await driver.actions().sendKeys(Key.RETURN).perform();
       } else if (trimmedInstruction === "FIND") {
-        await driver.actions().keyDown(Key.CONTROL).perform(); // Press CTRL
-        await driver.actions().sendKeys("f").perform();       // Press F
-        await driver.actions().keyUp(Key.CONTROL).perform();   // Release CTRL
+        await driver.actions().keyDown(Key.CONTROL).perform();
+        await driver.actions().sendKeys("f").perform();
+        await driver.actions().keyUp(Key.CONTROL).perform();
       } else if (trimmedInstruction === "PASTE") {
         await driver
           .actions()
@@ -472,62 +472,103 @@ async function executeInstructions(driver, username, password, order, journalLin
       } else if (trimmedInstruction === "CHKREGQS") {
         console.log("Handling survey popup check...");
         try {
-          const targetText = "* Self-report your data to improve equity in research";
+          // Click on body first to ensure focus
+          const body = await driver.findElement(By.tagName('body'));
+          await body.click();
+          await driver.sleep(1000);
+
+          const targetText = "Self-report your data to improve equity in research";
           let found = false;
-          let attempts = 0;
-          const maxAttempts = 20;
-      
-          while (!found && attempts < maxAttempts) {
+
+          // Store main window handle at the start
+          const mainWindow = await driver.getWindowHandle();
+
+          // Do first 2 tabs and check
+          for (let i = 0; i < 2; i++) {
             await driver.actions().sendKeys(Key.TAB).perform();
             let activeElement = await switchToActiveElement(driver);
             let text = await activeElement.getText();
-            console.log("Current text:", text);
-      
-            if (text.includes(targetText)) {
-              console.log("Found target text, executing sequence...");
-              found = true;
-              
-              // Take screenshot before clicking
-              await screenshotManager.capture(driver, username, userId);
-              
-              // Click to open the popup window
-              await driver.actions().sendKeys(Key.RETURN).perform();
-              await driver.sleep(2000); // Wait for popup window
-              
-              // Take screenshot after popup opens
-              await screenshotManager.capture(driver, username, userId);
-              
-              // Send Alt+F4 to close the popup window
-              await driver.actions()
-                .keyDown(Key.ALT)
-                .sendKeys(Key.F4)
-                .keyUp(Key.ALT)
-                .perform();
-              
-              await driver.sleep(1000); // Wait for popup to close
-              
-              // Do 2 tabs
-              await driver.actions().sendKeys(Key.TAB).perform();
-              await driver.actions().sendKeys(Key.TAB).perform();
-              
-              // Press Enter
-              await driver.actions().sendKeys(Key.RETURN).perform();
-              
-              // Final timeout
-              await driver.sleep(5000);
-              break;
+            console.log(`Tab ${i + 1} focused text:`, text || '[No text]');
+
+            // Check specifically on second tab
+            if (i === 1) {
+              if (text.includes(targetText)) {
+                console.log("Found target text at second tab");
+                found = true;
+
+                // Press enter to open popup
+                await driver.actions().sendKeys(Key.RETURN).perform();
+                // await driver.sleep(5000);
+                console.log("Window opened.........");
+
+                // Get all window handles after popup opens
+                const handles = await driver.getAllWindowHandles();
+
+                // Switch to popup window (last window in handles array)
+                if (handles.length > 1) {
+                  const popupWindow = handles[handles.length - 1];
+                  await driver.switchTo().window(popupWindow);
+                  await driver.close(); 
+                  console.log("Window closed.........");
+                }
+
+                // Switch back to main window
+                await driver.switchTo().window(mainWindow);
+                await driver.sleep(1000);
+
+                // Ensure we're back on the main window
+                console.log("Switching focus back to main window");
+                await body.click();
+                await driver.sleep(1000);
+
+                // Do 2 tabs
+                for (let i = 0; i < 4; i++) {
+                  await driver.actions().sendKeys(Key.TAB).perform();
+                  // await driver.sleep(2000);
+                  // console.log(`Tab ${i + 1} focused`);
+                }
+                // Press enter
+                await driver.actions().sendKeys(Key.RETURN).perform();
+                await driver.sleep(5000);
+                await driver.navigate().refresh();
+                console.log("Page reloaded after survey completion");
+                await driver.sleep(5000);
+                break;
+              } else {
+                console.log("Target text not found at second tab, doing reverse tabs");
+                // await driver.sleep(5000);
+
+                // Do 2 reverse tabs
+                // for (let j = 0; j < 2; j++) {
+                //   await driver.actions()
+                //     .keyDown(Key.SHIFT)
+                //     .sendKeys(Key.TAB)
+                //     .keyUp(Key.SHIFT)
+                //     .perform();
+                //   await driver.sleep(5000);
+                // }
+                await driver.navigate().refresh();
+                console.log("Page reloaded after survey completion");
+                await driver.sleep(5000);
+                break;
+              }
+
             }
-            
-            attempts++;
           }
-          
-          if (!found) {
-            console.log("Survey text not found after maximum attempts");
-          }
-          
-          console.log("Survey popup check sequence completed");
+
+          console.log("Survey check sequence completed");
+
         } catch (error) {
           console.log("Error during survey popup check:", error);
+          try {
+            // Attempt to recover by switching to any available window
+            const handles = await driver.getAllWindowHandles();
+            if (handles.length > 0) {
+              await driver.switchTo().window(handles[0]);
+            }
+          } catch (recoveryError) {
+            console.log("Could not recover window focus:", recoveryError);
+          }
         }
       } else if (trimmedInstruction === "CHKSTS") {
         if (journalLink.includes("editorialmanager")) {
@@ -596,10 +637,10 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
     while (!found && attempts < MAX_ATTEMPTS) {
       attempts++;
       console.log(`Attempt ${attempts} to find status text...`);
-      
+
       await driver.actions().sendKeys(Key.TAB).perform();
       //await driver.sleep(1000); // Small delay between tabs
-      
+
       let activeElement = await switchToActiveElement(driver);
       let text = await activeElement.getText();
       //console.log(`Current text: ${text}`);
@@ -614,7 +655,7 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
           await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
           const tabs = await driver.getAllWindowHandles();
           //console.log(`Number of tabs: ${tabs.length}`);
-          
+
           await driver.switchTo().window(tabs[1]);
           await driver.sleep(5000);
 
@@ -645,14 +686,14 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
     // Continue checking for more statuses
     let notFoundInCollection = false;
     attempts = 0;
-    
+
     while (!notFoundInCollection && attempts < MAX_ATTEMPTS) {
       attempts++;
       console.log(`Checking for additional statuses, attempt ${attempts}...`);
-      
+
       await driver.actions().sendKeys(Key.TAB).perform();
       await driver.sleep(1000);
-      
+
       let activeElement = await switchToActiveElement(driver);
       let text = await activeElement.getText();
 
@@ -675,7 +716,7 @@ async function handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappN
           await driver.actions().keyDown(Key.CONTROL).sendKeys(Key.RETURN).keyUp(Key.CONTROL).perform();
           const tabs = await driver.getAllWindowHandles();
           console.log(`Number of tabs: ${tabs.length}`);
-          
+
           await driver.switchTo().window(tabs[1]);
           await driver.sleep(5000);
 
@@ -713,7 +754,7 @@ async function sendWhatsAppMessage(to, message) {
           'Content-Type': 'application/json'
         }
       }
-    );  
+    );
   } catch (error) {
     console.error('Error sending WhatsApp message:', error.response?.data || error.message);
     throw error;
@@ -787,11 +828,11 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
 async function handleScreenshotRequest(username, whatsappNumber) {
   // Generate a unique request ID
   const requestId = uuidv4();
-  
+
   return requestQueue.add(async () => {
     try {
       console.log(`Processing request ${requestId} for user ${username}`);
-      
+
       // Create or get user session
       let session = userSessions.get(username);
       if (!session) {
@@ -802,7 +843,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         };
         userSessions.set(username, session);
       }
-      
+
       // Update last accessed time
       session.lastAccessed = Date.now();
 
@@ -1165,7 +1206,7 @@ app.post("/capture", async (req, res) => {
     }
 
     console.log("Querying database for user...");
-    
+
     // First try to find by Personal_Email
     db.all(
       "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
@@ -1242,10 +1283,10 @@ async function processRows(rows, res) {
 const automateProcess = async (match, order, whatsappNumber, userId) => {
   const sessionId = SessionManager.createSession(whatsappNumber);
   const session = SessionManager.getSession(sessionId);
-  
+
   const options = new chrome.Options();
   options.addArguments([
-    "--headless",
+    // "--headless",
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--window-size=1920,1080",
@@ -1258,21 +1299,21 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
       .forBrowser("chrome")
       .setChromeOptions(options)
       .build();
-    
+
     session.driver = driver;
 
     // Add timeout for initial navigation
     await Promise.race([
       driver.get(match.url),
-      new Promise((_, reject) => 
+      new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Navigation timeout')), 30000)
       )
     ]);
 
     await driver.sleep(5000);
-    
+
     await executeInstructions(driver, match.username, match.password, order, match.url, whatsappNumber, userId);
-    
+
   } catch (error) {
     console.error("Automation error:", error);
     // Ensure screenshots are sent even if automation fails
@@ -1286,7 +1327,7 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
 setInterval(() => {
   const MAX_SESSION_AGE = 30 * 60 * 1000; // 30 minutes
   const now = Date.now();
-  
+
   for (const [sessionId, session] of SessionManager.sessions) {
     if (now - session.createdAt > MAX_SESSION_AGE) {
       SessionManager.cleanupSession(sessionId);
@@ -1325,7 +1366,7 @@ app.get('/', (req, res) => {
 app.post("/test-decrypt", async (req, res) => {
   try {
     const { encryptedText } = req.body;
-    
+
     if (!encryptedText) {
       return res.status(400).json({
         error: "Missing encryptedText in request body"
@@ -1333,7 +1374,7 @@ app.post("/test-decrypt", async (req, res) => {
     }
 
     console.log('Testing decryption for:', encryptedText);
-    
+
     try {
       const decrypted = decrypt(encryptedText);
       res.json({
@@ -1366,7 +1407,7 @@ app.post("/test-decrypt", async (req, res) => {
 app.post("/check-status", async (req, res) => {
   try {
     const { username, phone_number } = req.body;
-    
+
     if (!username || !phone_number) {
       return res.status(400).json({
         error: "Missing parameters",

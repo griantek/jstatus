@@ -4,6 +4,7 @@
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "p-queue": "^8.1.0",
     "selenium-webdriver": "^4.28.1",
     "sqlite3": "^5.1.7"
   }
