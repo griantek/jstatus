@@ -895,7 +895,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         });
         return;
       }
-      console.log("Found account information:", rows);
+      // console.log("Found account information:", rows);
 
       // Clear the set of new screenshots before processing
       newlyGeneratedScreenshots.clear();
@@ -907,7 +907,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         let decrypted = {};
         try {
           decrypted.url = row.url ? decrypt(row.url) : '';
-          console.log('Decrypted URL:', decrypted.url);
+          // console.log('Decrypted URL:', decrypted.url);
         } catch (e) {
           console.error('URL decryption error:', e);
           decrypted.url = '';
@@ -1174,52 +1174,52 @@ const handleJournal = async (match, order, whatsappNumber, userId) => {
 
 // Define functions for each journal type
 const handleManuscriptCentral = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Manuscript Central: ${match.url}`);
+  // console.log(`Handling Manuscript Central: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleEditorialManager = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Editorial Manager: ${match.url}`);
+  // console.log(`Handling Editorial Manager: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleTandFOnline = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling TandF Online: ${match.url}`);
+  // console.log(`Handling TandF Online: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleTaylorFrancis = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Taylor Francis: ${match.url}`);
+  // console.log(`Handling Taylor Francis: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleCGScholar = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling CG Scholar: ${match.url}`);
+  // console.log(`Handling CG Scholar: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleTheSciPub = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling The SciPub: ${match.url}`);
+  // console.log(`Handling The SciPub: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleWiley = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Wiley: ${match.url}`);
+  // console.log(`Handling Wiley: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handlePeriodicos = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Periodicos: ${match.url}`);
+  // console.log(`Handling Periodicos: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleTSPSubmission = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling TSP Submission: ${match.url}`);
+  // console.log(`Handling TSP Submission: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
 const handleSpringerNature = async (match, order, whatsappNumber, userId) => {
-  console.log(`Handling Springer Nature: ${match.url}`);
+  // console.log(`Handling Springer Nature: ${match.url}`);
   await automateProcess(match, order, whatsappNumber, userId);
 };
 
