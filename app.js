@@ -1003,8 +1003,40 @@ app.post('/webhook', async (req, res) => {
     processedMessages.add(messageId);
 
     if (messageData.type === 'text') {
-      console.log(`Received text message from ${from}: ${messageData.text.body}`);
       const username = messageData.text.body.trim();
+      console.log(`Received text message from ${from}: ${username}`);
+      
+      // Send immediate acknowledgment
+      await sendWhatsAppMessage(from, {
+        messaging_product: "whatsapp",
+        to: from,
+        type: "text",
+        text: { body: `✓ Received your request for: ${username}\nSearching records...` }
+      });
+
+      // Query database to get match count
+      const matchCount = await new Promise((resolve, reject) => {
+        db.all(
+          "SELECT COUNT(*) as count FROM journal_data WHERE Personal_Email = ? OR Client_Name = ?",
+          [username, username],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows[0].count);
+          }
+        );
+      });
+
+      // Send match count before processing
+      if (matchCount > 0) {
+        await sendWhatsAppMessage(from, {
+          messaging_product: "whatsapp",
+          to: from,
+          type: "text",
+          text: { body: `Found ${matchCount} matching journal(s).\nProcessing your request...` }
+        });
+      }
+
+      // Process the request
       await handleScreenshotRequest(username, from);
     }
 
@@ -1286,7 +1318,7 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
 
   const options = new chrome.Options();
   options.addArguments([
-    // "--headless",
+    "--headless",
     "--no-sandbox",
     "--disable-dev-shm-usage",
     "--window-size=1920,1080",
