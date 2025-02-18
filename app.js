@@ -1326,7 +1326,7 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
   ]);
 
   try {
-    console.log(`Starting automation for URL: ${match.url}`);
+    // console.log(`Starting automation for URL: ${match.url}`);
     const driver = await new Builder()
       .forBrowser("chrome")
       .setChromeOptions(options)
