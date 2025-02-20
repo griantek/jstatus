@@ -7,3 +7,4 @@ keys
 .env
 node_modules
 .vscode
+logs

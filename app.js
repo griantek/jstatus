@@ -13,6 +13,7 @@ import { promisify } from 'util'; // Added for promisify
 import { v4 as uuidv4 } from 'uuid';
 import PQueue from 'p-queue';
 import { spawn } from 'child_process'; 
+import { logger } from './utils/Logger.js';
 
 dotenv.config();
 
@@ -538,7 +539,6 @@ async function executeInstructions(driver, username, password, order, journalLin
                 }
                 // Press enter
                 await driver.actions().sendKeys(Key.RETURN).perform();
-                await driver.sleep(5000);
                 await driver.navigate().refresh();
                 console.log("Page reloaded after survey completion");
                 await driver.sleep(5000);
@@ -833,26 +833,35 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
   console.log(`Screenshot saved: ${screenshotPath}`);
 }
 
-// Replace the existing handleScreenshotRequest function
+// Modify handleScreenshotRequest to handle everything in one place
 async function handleScreenshotRequest(username, whatsappNumber) {
   const requestId = uuidv4();
-  queueStats.total++;
+  const startTime = new Date();
+  
+  await logger.logUserRequest({
+    requestId,
+    from: whatsappNumber,
+    searchQuery: username,
+    startTime: startTime.toISOString(),
+    status: 'queued',
+    queuePosition: requestQueue.size + 1
+  });
 
   return requestQueue.add(async () => {
     try {
       queueStats.current++;
       
       // Send queue position message
-      if (requestQueue.size > 0) {
-        await sendWhatsAppMessage(whatsappNumber, {
-          messaging_product: "whatsapp",
-          to: whatsappNumber,
-          type: "text",
-          text: { 
-            body: `Your request is in queue (Position: ${queueStats.getPosition(requestId)}). We'll process it shortly.` 
-          }
-        });
-      }
+      // if (requestQueue.size > 0) {
+      //   await sendWhatsAppMessage(whatsappNumber, {
+      //     messaging_product: "whatsapp",
+      //     to: whatsappNumber,
+      //     type: "text",
+      //     text: { 
+      //       body: `Your request is in queue (Position: ${queueStats.getPosition(requestId)}). We'll process it shortly.` 
+      //     }
+      //   });
+      // }
 
       console.log(`Processing request ${requestId} for user ${username}`);
 
@@ -968,9 +977,32 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         return;
       }
 
-      // Process each match (this will generate new screenshots)
-      for (const [index, match] of matches.entries()) {
-        await handleJournal(match, index + 1, whatsappNumber, username);
+      // Process matches in handleScreenshotRequest only
+      if (matches.length > 0) {
+        for (const [index, match] of matches.entries()) {
+          const journalStartTime = new Date().toISOString();
+          
+          try {
+            await handleJournal(match, index + 1, whatsappNumber, username);
+            
+            await logger.updateJournalStatus(requestId, {
+              url: match.url,
+              name: `Journal ${index + 1}`,
+              startTime: journalStartTime,
+              completionTime: new Date().toISOString(),
+              status: 'completed'
+            });
+          } catch (error) {
+            await logger.updateJournalStatus(requestId, {
+              url: match.url,
+              name: `Journal ${index + 1}`,
+              startTime: journalStartTime,
+              completionTime: new Date().toISOString(),
+              status: 'error',
+              error: error.message
+            });
+          }
+        }
       }
 
       // Send all captured screenshots at once
@@ -987,8 +1019,33 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         text: { body: "All new status updates have been sent." }
       });
 
+      // Log completion
+      const endTime = new Date();
+      const duration = (endTime - startTime) / 1000;
+
+      await logger.logUserRequest({
+        requestId,
+        status: 'completed',
+        completionTime: endTime.toISOString(),
+        totalDuration: duration
+      });
+
+      // Return matches for webhook handler
+      return { matches };
+
     } catch (error) {
       console.error(`Error processing request ${requestId}:`, error);
+      // Log error
+      const endTime = new Date();
+      const duration = (endTime - startTime) / 1000;
+
+      await logger.logUserRequest({
+        requestId,
+        status: 'error',
+        error: error.message,
+        completionTime: endTime.toISOString(),
+        totalDuration: duration
+      });
       throw error;
     } finally {
       queueStats.current--;
@@ -1010,6 +1067,9 @@ app.get('/webhook', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+  const requestId = uuidv4();
+  const startTime = new Date();
+  
   try {
     const messageData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!messageData) return res.sendStatus(400);
@@ -1017,61 +1077,51 @@ app.post('/webhook', async (req, res) => {
     const from = messageData.from;
     const messageId = messageData.id;
 
-    // Check if the message has already been processed
+    // Start logging the request with start time
+    await logger.logUserRequest({
+      requestId,
+      from,
+      searchQuery: messageData.text?.body,
+      startTime: startTime.toISOString(),
+      status: 'started'
+    });
+
     if (processedMessages.has(messageId)) {
       console.log(`Message ${messageId} already processed.`);
       return res.sendStatus(200);
     }
-
-    // Mark the message as processed
     processedMessages.add(messageId);
 
     if (messageData.type === 'text') {
       const username = messageData.text.body.trim();
-      console.log(`Received text message from ${from}: ${username}`);
       
-      // Send immediate acknowledgment
-      await sendWhatsAppMessage(from, {
-        messaging_product: "whatsapp",
-        to: from,
-        type: "text",
-        text: { 
-          body: `✓ Request received for: ${username}\n${
-            requestQueue.size > 0 
-              ? `Current queue size: ${requestQueue.size + 1}\nEstimated wait time: ${(requestQueue.size + 1) * 2} minutes`
-              : 'Processing your request immediately...'
-          }` 
-        }
-      });
-
-      // Query database to get match count
-      const matchCount = await new Promise((resolve, reject) => {
-        db.all(
-          "SELECT COUNT(*) as count FROM journal_data WHERE Personal_Email = ? OR Client_Name = ?",
-          [username, username],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows[0].count);
-          }
-        );
-      });
-
-      // Send match count before processing
-      if (matchCount > 0) {
-        await sendWhatsAppMessage(from, {
-          messaging_product: "whatsapp",
-          to: from,
-          type: "text",
-          text: { body: `Found ${matchCount} matching journal(s).\nProcessing your request...` }
-        });
-      }
-
-      // Process the request
+      // Process the request - this will handle everything including matches processing
       await handleScreenshotRequest(username, from);
+      
+      // No need to process matches again - handleScreenshotRequest does it all
+      const endTime = new Date();
+      const duration = (endTime - startTime) / 1000;
+
+      await logger.logUserRequest({
+        requestId,
+        status: 'completed',
+        completionTime: endTime.toISOString(),
+        totalDuration: duration
+      });
     }
 
     res.sendStatus(200);
   } catch (error) {
+    const endTime = new Date();
+    const duration = (endTime - startTime) / 1000;
+
+    await logger.logUserRequest({
+      requestId,
+      status: 'error',
+      error: error.message,
+      completionTime: endTime.toISOString(),
+      totalDuration: duration
+    });
     console.error('Webhook error:', error);
     res.sendStatus(500);
   }
