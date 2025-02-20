@@ -12,6 +12,7 @@ import path from "path"; // Added for path handling
 import { promisify } from 'util'; // Added for promisify
 import { v4 as uuidv4 } from 'uuid';
 import PQueue from 'p-queue';
+import { spawn } from 'child_process'; 
 
 dotenv.config();
 
@@ -105,12 +106,19 @@ async function switchToActiveElement(driver) {
 // Add request queue to manage concurrent requests
 const requestQueue = new PQueue({ concurrency: 1 });
 
+// Add queue status tracking
+const queueStats = {
+  total: 0,
+  current: 0,
+  getPosition: (id) => queueStats.total - queueStats.current + 1
+};
+
 // Add user session tracking
 const userSessions = new Map();
 
 // Modify screenshotManager to handle root-level folder management
 const screenshotManager = {
-  baseFolder: process.env.SCREENSHOT_FOLDER,
+  baseFolder: process.env.SCREENSHOT_FOLDER || "screenshots",  // Default to screenshots folder
   sessions: new Map(),
 
   async init() {
@@ -381,15 +389,14 @@ async function executeInstructions(driver, username, password, order, journalLin
       keysFile = "keys/manus_KEYS.txt";
     } else if (journalLink.includes("editorialmanager")) {
       keysFile = "keys/edito_KEYS.txt";
-    } else if (journalLink.includes("tandfonline")) {
-      keysFile = "keys/tandf_KEYS.txt";
-    } else if (journalLink.includes("taylorfrancis")) {
+    // } else if (journalLink.includes("tandfonline")) {
+    } else if (journalLink.includes("taylorfrancis") || journalLink.includes("tandfonline")) {
       keysFile = "keys/taylo_KEYS.txt";
     } else if (journalLink.includes("cgscholar")) {
       keysFile = "keys/cgsch_KEYS.txt";
     } else if (journalLink.includes("thescipub")) {
       keysFile = "keys/thesc_KEYS.txt";
-    } else if (journalLink.includes("wiley.scienceconnect.io")) {
+    } else if (journalLink.includes("wiley")) {
       keysFile = "keys/wiley_KEYS.txt";
     } else if (journalLink.includes("periodicos")) {
       keysFile = "keys/perio_KEYS.txt";
@@ -397,6 +404,8 @@ async function executeInstructions(driver, username, password, order, journalLin
       keysFile = "keys/tspsu_KEYS.txt";
     } else if (journalLink.includes("springernature")) {
       keysFile = "keys/springer_KEYS.txt";
+    } else if (journalLink.includes("wiley.scienceconnect.io") || journalLink.includes("onlinelibrary.wiley")) {
+      keysFile = "keys/wiley_KEYS.txt";
     } else {
       throw new Error(`No keys file defined for URL: ${journalLink}`);
     }
@@ -584,7 +593,7 @@ async function executeInstructions(driver, username, password, order, journalLin
           await handleCGScholarCHKSTS(driver, order, foundTexts);
         } else if (journalLink.includes("thescipub")) {
           await handleTheSciPubCHKSTS(driver, order, foundTexts, whatsappNumber);
-        } else if (journalLink.includes("wiley.com")) {
+        } else if (journalLink.includes("wiley")) {
           await handleWileyCHKSTS(driver, order, foundTexts);
         } else if (journalLink.includes("periodicos")) {
           await handlePeriodicosCHKSTS(driver, order, foundTexts);
@@ -826,11 +835,25 @@ async function saveScreenshot(driver, folderPath, fileName, order) {
 
 // Replace the existing handleScreenshotRequest function
 async function handleScreenshotRequest(username, whatsappNumber) {
-  // Generate a unique request ID
   const requestId = uuidv4();
+  queueStats.total++;
 
   return requestQueue.add(async () => {
     try {
+      queueStats.current++;
+      
+      // Send queue position message
+      if (requestQueue.size > 0) {
+        await sendWhatsAppMessage(whatsappNumber, {
+          messaging_product: "whatsapp",
+          to: whatsappNumber,
+          type: "text",
+          text: { 
+            body: `Your request is in queue (Position: ${queueStats.getPosition(requestId)}). We'll process it shortly.` 
+          }
+        });
+      }
+
       console.log(`Processing request ${requestId} for user ${username}`);
 
       // Create or get user session
@@ -968,6 +991,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
       console.error(`Error processing request ${requestId}:`, error);
       throw error;
     } finally {
+      queueStats.current--;
       // Cleanup
       await screenshotManager.deleteUserFolder(username);
       console.log(`Completed request ${requestId}`);
@@ -1011,7 +1035,13 @@ app.post('/webhook', async (req, res) => {
         messaging_product: "whatsapp",
         to: from,
         type: "text",
-        text: { body: `✓ Received your request for: ${username}\nSearching records...` }
+        text: { 
+          body: `✓ Request received for: ${username}\n${
+            requestQueue.size > 0 
+              ? `Current queue size: ${requestQueue.size + 1}\nEstimated wait time: ${(requestQueue.size + 1) * 2} minutes`
+              : 'Processing your request immediately...'
+          }` 
+        }
       });
 
       // Query database to get match count
@@ -1104,7 +1134,7 @@ async function handleTheSciPubCHKSTS(driver, order, foundTexts, whatsappNumber) 
 
       // Take screenshot
       console.log("Taking screenshot of the current page...");
-      const screenshotFolder = `screenshot/${order}`;
+      const screenshotFolder = `screenshots/${order}`;  // Changed from screenshot to screenshots
       if (!fs.existsSync(screenshotFolder)) {
         fs.mkdirSync(screenshotFolder, { recursive: true });
       }
@@ -1159,7 +1189,7 @@ const handleJournal = async (match, order, whatsappNumber, userId) => {
     await handleCGScholar(match, order, whatsappNumber, userId);
   } else if (url.includes("thescipub")) {
     await handleTheSciPub(match, order, whatsappNumber, userId);
-  } else if (url.includes("wiley.scienceconnect.io")) {
+  } else if (url.includes("wiley.scienceconnect.io") || url.includes("onlinelibrary.wiley")) {
     await handleWiley(match, order, whatsappNumber, userId);
   } else if (url.includes("periodicos")) {
     await handlePeriodicos(match, order, whatsappNumber, userId);
@@ -1184,8 +1214,90 @@ const handleEditorialManager = async (match, order, whatsappNumber, userId) => {
 };
 
 const handleTandFOnline = async (match, order, whatsappNumber, userId) => {
-  // console.log(`Handling TandF Online: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber, userId);
+  const sessionId = SessionManager.createSession(whatsappNumber);
+  const session = SessionManager.getSession(sessionId);
+
+  try {
+    console.log(`Starting TandF automation with SeleniumBase for URL: ${match.url}`);
+    
+    // Create screenshots directory if it doesn't exist
+    if (!fs.existsSync('screenshots')) {
+      fs.mkdirSync('screenshots', { recursive: true });
+    }
+
+    // Call Python script
+    const result = await new Promise((resolve, reject) => {
+      const pythonProcess = spawn('python', [
+        'handlers/tandf_handler.py',
+        match.url,
+        match.username,
+        match.password
+      ]);
+
+      let stdoutData = '';
+      let stderrData = '';
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdoutData += data.toString();
+        console.log('Python output:', data.toString());
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        stderrData += data.toString();
+        console.error('Python error:', data.toString());
+      });
+
+      pythonProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Process exited with code ${code}: ${stderrData}`));
+          return;
+        }
+
+        try {
+          const lastLine = stdoutData.trim().split('\n').pop();
+          const result = JSON.parse(lastLine);
+          resolve(result);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          reject(new Error('Failed to parse Python output'));
+        }
+      });
+    });
+
+    // Process the result
+    if (result.status === 'success' && Array.isArray(result.screenshots)) {
+      // Create user session if it doesn't exist
+      const userSession = screenshotManager.sessions.get(userId) || screenshotManager.createSession(userId);
+
+      for (const screenshot of result.screenshots) {
+        if (fs.existsSync(screenshot)) {
+          // Read the screenshot file
+          const screenshotContent = fs.readFileSync(screenshot);
+          
+          // Create a new filename in the user's session folder
+          const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
+          const filename = `tandf_status_${timestamp}.png`;
+          const filepath = path.join(userSession.folder, filename);
+
+          // Save the screenshot in user's session folder
+          fs.writeFileSync(filepath, screenshotContent);
+          userSession.screenshots.add(filepath);
+
+          // Clean up the temporary screenshot
+          fs.unlinkSync(screenshot);
+        }
+      }
+    } else {
+      throw new Error(result.error || 'Failed to get screenshots');
+    }
+
+  } catch (error) {
+    console.error("TandF automation error:", error);
+  } finally {
+    // Send screenshots to WhatsApp
+    await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+    await SessionManager.cleanupSession(sessionId);
+  }
 };
 
 const handleTaylorFrancis = async (match, order, whatsappNumber, userId) => {
@@ -1204,8 +1316,90 @@ const handleTheSciPub = async (match, order, whatsappNumber, userId) => {
 };
 
 const handleWiley = async (match, order, whatsappNumber, userId) => {
-  // console.log(`Handling Wiley: ${match.url}`);
-  await automateProcess(match, order, whatsappNumber, userId);
+  const sessionId = SessionManager.createSession(whatsappNumber);
+  const session = SessionManager.getSession(sessionId);
+
+  try {
+    console.log(`Starting Wiley automation with SeleniumBase for URL: ${match.url}`);
+    
+    // Create screenshots directory if it doesn't exist
+    if (!fs.existsSync('screenshots')) {
+      fs.mkdirSync('screenshots', { recursive: true });
+    }
+
+    // Call Python script
+    const result = await new Promise((resolve, reject) => {
+      const pythonProcess = spawn('python', [
+        'handlers/wiley_handler.py',
+        match.url,
+        match.username,
+        match.password
+      ]);
+
+      let stdoutData = '';
+      let stderrData = '';
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdoutData += data.toString();
+        console.log('Python output:', data.toString());
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        stderrData += data.toString();
+        console.error('Python error:', data.toString());
+      });
+
+      pythonProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Process exited with code ${code}: ${stderrData}`));
+          return;
+        }
+
+        try {
+          const lastLine = stdoutData.trim().split('\n').pop();
+          const result = JSON.parse(lastLine);
+          resolve(result);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          reject(new Error('Failed to parse Python output'));
+        }
+      });
+    });
+
+    // Process the result
+    if (result.status === 'success' && Array.isArray(result.screenshots)) {
+      // Create user session if it doesn't exist
+      const userSession = screenshotManager.sessions.get(userId) || screenshotManager.createSession(userId);
+
+      for (const screenshot of result.screenshots) {
+        if (fs.existsSync(screenshot)) {
+          // Read the screenshot file
+          const screenshotContent = fs.readFileSync(screenshot);
+          
+          // Create a new filename in the user's session folder
+          const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
+          const filename = `wiley_status_${timestamp}.png`;
+          const filepath = path.join(userSession.folder, filename);
+
+          // Save the screenshot in user's session folder
+          fs.writeFileSync(filepath, screenshotContent);
+          userSession.screenshots.add(filepath);
+
+          // Clean up the temporary screenshot
+          fs.unlinkSync(screenshot);
+        }
+      }
+    } else {
+      throw new Error(result.error || 'Failed to get screenshots');
+    }
+
+  } catch (error) {
+    console.error("Wiley automation error:", error);
+  } finally {
+    // Send screenshots to WhatsApp
+    await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+    await SessionManager.cleanupSession(sessionId);
+  }
 };
 
 const handlePeriodicos = async (match, order, whatsappNumber, userId) => {
@@ -1327,6 +1521,7 @@ const automateProcess = async (match, order, whatsappNumber, userId) => {
 
   try {
     console.log(`Starting automation for URL: ${match.url}`);
+
     const driver = await new Builder()
       .forBrowser("chrome")
       .setChromeOptions(options)

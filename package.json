@@ -6,6 +6,14 @@
     "express": "^4.21.2",
     "p-queue": "^8.1.0",
     "selenium-webdriver": "^4.28.1",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "undetected-chromedriver": "github:ultrafunkamsterdam/undetected-chromedriver-node"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "python": ">=3.7.0"
+  },
+  "scripts": {
+    "preinstall": "pip install -r requirements.txt"
   }
 }

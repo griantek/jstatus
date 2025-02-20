@@ -2,6 +2,7 @@ chromedriver
 journal_db.db
 KEYS.txt
 screenshot
+screenshots
 keys
 .env
 node_modules
