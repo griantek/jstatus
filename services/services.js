@@ -108,6 +108,51 @@ async function switchToActiveElement(driver) {
     return activeElement;
 }
 
+// Add this helper function near the top with other helper functions
+async function waitForClickable(driver, element, maxAttempts = 3) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            // Try to click the element
+            await element.click();
+            return true;
+        } catch (error) {
+            if (error.name === 'ElementClickInterceptedError') {
+                // Try to handle any overlays or consent dialogs
+                try {
+                    // Common consent dialog selectors
+                    const consentSelectors = [
+                        '.category-menu-switch-handler',
+                        '#onetrust-accept-btn-handler',
+                        '.cookie-consent-accept',
+                        '[aria-label="Accept cookies"]'
+                    ];
+
+                    for (const selector of consentSelectors) {
+                        try {
+                            const overlay = await driver.findElement(By.css(selector));
+                            await overlay.click();
+                            await driver.sleep(1000);
+                        } catch (e) {
+                            // Ignore if selector not found
+                            continue;
+                        }
+                    }
+
+                    // Try clicking the original element again
+                    await driver.sleep(1000);
+                    continue;
+                } catch (e) {
+                    if (attempt === maxAttempts - 1) throw error;
+                    await driver.sleep(1000);
+                }
+            } else {
+                throw error;
+            }
+        }
+    }
+    return false;
+}
+
 // Screenshot manager
 const screenshotManager = {
     baseFolder: process.env.SCREENSHOT_FOLDER || "screenshots",  // Default to screenshots folder
@@ -468,7 +513,9 @@ async function executeInstructions(driver, username, password, order, journalLin
                     console.log(`Unknown CLICK target: ${clickTarget}`);
                     continue;
                 }
-                await inputElement.click();
+                
+                // Use the new waitForClickable function instead of direct click
+                await waitForClickable(driver, inputElement);
                 console.log(`Clicked on element with target: ${clickTarget}`);
             } else if (trimmedInstruction === "CHKREGQS") {
                 console.log("Handling survey popup check...");
@@ -930,63 +977,16 @@ setInterval(() => {
     screenshotManager.clearAllScreenshots();
 }, 15 * 60 * 1000);
 
-// Update automateProcess function definition
+// Add automateProcess function definition
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
-        const options = new chrome.Options();
-        options.addArguments('--headless', '--no-sandbox', '--disable-dev-shm-usage');
-
         const driver = await new Builder()
             .forBrowser('chrome')
-            .setChromeOptions(options)
+            .setChromeOptions(new chrome.Options().headless())
             .build();
             
         try {
             await driver.get(match.url);
-            
-            // Handle cookie consent dialogs - add handlers for different sites
-            try {
-                // Wait up to 5 seconds for any cookie dialog
-                await driver.wait(async () => {
-                    try {
-                        // OneTrust cookie dialog (used by many academic sites)
-                        const oneTrustButton = await driver.findElements(By.css('#onetrust-accept-btn-handler'));
-                        if (oneTrustButton.length > 0) {
-                            await oneTrustButton[0].click();
-                            await driver.sleep(1000);
-                            return true;
-                        }
-
-                        // Alternative cookie button selectors
-                        const cookieButtonSelectors = [
-                            '.cookie-consent-accept',
-                            '.accept-cookies-button',
-                            '#accept-cookies',
-                            '[aria-label="Accept cookies"]',
-                            '.cookie-banner__accept-button',
-                            '#CybotCookiebotDialogBodyButtonAccept'
-                        ];
-
-                        for (const selector of cookieButtonSelectors) {
-                            const buttons = await driver.findElements(By.css(selector));
-                            if (buttons.length > 0) {
-                                await buttons[0].click();
-                                await driver.sleep(1000);
-                                return true;
-                            }
-                        }
-
-                        // If no cookie dialog found, continue
-                        return true;
-                    } catch (e) {
-                        console.log('Cookie dialog check error:', e);
-                        return true;
-                    }
-                }, 5000);
-            } catch (cookieError) {
-                console.log('Cookie consent handling completed or timed out');
-            }
-            
             await executeInstructions(
                 driver, 
                 match.username, 
