@@ -416,7 +416,6 @@ const SessionManager = {
 // Core instruction execution
 async function executeInstructions(driver, username, password, order, journalLink, whatsappNumber, userId) {
     try {
-        // Start the timer
         const startTime = performance.now();
         console.log("Execution started...");
 
@@ -447,11 +446,23 @@ async function executeInstructions(driver, username, password, order, journalLin
             throw new Error(`No keys file defined for URL: ${journalLink}`);
         }
 
-        const instructions = fs.readFileSync(keysFile, "utf-8").split("\n");
+        // Read and filter instructions
+        const rawInstructions = fs.readFileSync(keysFile, "utf-8").split("\n");
+        const instructions = rawInstructions.filter(line => {
+            const trimmed = line.trim();
+            return trimmed && trimmed.length > 0; // Only keep non-empty lines
+        });
+
         const foundTexts = [];
 
         for (const [index, instruction] of instructions.entries()) {
             const trimmedInstruction = instruction.trim();
+            
+            // Skip empty lines or whitespace
+            if (!trimmedInstruction) {
+                continue;
+            }
+
             const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
 
             // console.log(
@@ -644,7 +655,7 @@ async function executeInstructions(driver, username, password, order, journalLin
                 }
             } else {
                 console.log(`Unknown instruction: ${trimmedInstruction}`);
-                await driver.sleep(200000); // Add a delay to ensure the element is focused
+                // await driver.sleep(200000); // Add a delay to ensure the element is focused
             }
         }
 
@@ -799,7 +810,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
                         if (emailRows && emailRows.length > 0) {
                             console.log("Found by Personal_Email");
-                            resolve(emailRows);
+                            resolve({ rows: emailRows, searchType: 'email' });
                             return;
                         }
 
@@ -812,7 +823,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                                     reject(err);
                                 } else {
                                     console.log("Found by Client_Name");
-                                    resolve(clientRows);
+                                    resolve({ rows: clientRows, searchType: 'client' });
                                 }
                             }
                         );
@@ -820,7 +831,7 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 );
             });
 
-            if (!rows || rows.length === 0) {
+            if (!rows.rows || rows.rows.length === 0) {
                 await sendWhatsAppMessage(whatsappNumber, {
                     messaging_product: "whatsapp",
                     to: whatsappNumber,
@@ -829,13 +840,22 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 });
                 return;
             }
-            // console.log("Found account information:", rows);
 
-            // Clear the set of new screenshots before processing
-            newlyGeneratedScreenshots.clear();
+            // Send greeting with found information
+            const searchTypeText = rows.searchType === 'email' ? 'email address' : 'client name';
+            await sendWhatsAppMessage(whatsappNumber, {
+                messaging_product: "whatsapp",
+                to: whatsappNumber,
+                type: "text",
+                text: { 
+                    body: `✓ Request received for ${username}\n` +
+                          `Found ${rows.rows.length} journal(s) linked to your ${searchTypeText}.\n` +
+                          `Processing your request...`
+                }
+            });
 
             // Process automation and generate new screenshots
-            let matches = rows.map(row => {
+            let matches = rows.rows.map(row => {
 
                 // Try decryption with detailed logging
                 let decrypted = {};
