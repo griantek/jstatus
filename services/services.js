@@ -1015,14 +1015,6 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             .build();
             
         try {
-            // Set maximum window size after browser creation
-            await driver.manage().window().setRect({
-                width: 1920,
-                height: 1080,
-                x: 0,
-                y: 0
-            });
-            await driver.manage().window().maximize();
             
             await driver.get(match.url);
             

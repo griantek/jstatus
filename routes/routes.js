@@ -138,12 +138,12 @@ export function setupRoutes(app, services) {
                 const username = messageData.text.body.trim();
                 
                 // Send greeting message first
-                await services.sendWhatsAppMessage(from, {
-                    messaging_product: "whatsapp",
-                    to: from,
-                    type: "text",
-                    text: { body: `✓ Request received for ${username}\nProcessing your request...` }
-                });
+                // await services.sendWhatsAppMessage(from, {
+                //     messaging_product: "whatsapp",
+                //     to: from,
+                //     type: "text",
+                //     text: { body: `✓ Request received for ${username}\nProcessing your request...` }
+                // });
                 
                 // Process the request
                 await handleScreenshotRequest(username, from);

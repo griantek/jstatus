@@ -52,7 +52,7 @@ def handle_tandf(url, username, password):
         print("Window size set")
         
         # Navigate to URL
-        driver.get(url)
+        driver.get("https://rp.tandfonline.com/dashboard/")
         # print(f"Navigated to {url}")
         time.sleep(5)  # Wait for page load
 
