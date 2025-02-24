@@ -981,8 +981,14 @@ setInterval(() => {
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
         const options = new chrome.Options();
-        // Fix headless option for newer Chrome versions
-        options.addArguments('--headless=new', '--no-sandbox', '--disable-dev-shm-usage');
+        options.addArguments(
+            '--headless=new',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--start-maximized',  // Start with maximized window
+            '--window-size=1920,1080',  // Set minimum window size
+            '--force-device-scale-factor=1'  // Force 100% zoom
+        );
 
         const driver = await new Builder()
             .forBrowser('chrome')
@@ -990,6 +996,15 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             .build();
             
         try {
+            // Set maximum window size after browser creation
+            await driver.manage().window().setRect({
+                width: 1920,
+                height: 1080,
+                x: 0,
+                y: 0
+            });
+            await driver.manage().window().maximize();
+            
             await driver.get(match.url);
             
             // Handle cookie consent dialogs
