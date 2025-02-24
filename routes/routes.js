@@ -60,13 +60,6 @@ export function setupRoutes(app, services) {
                     
                     if (retryAction === 'yes') {
                         // Create a simulated text message request
-                        const simulatedMessage = {
-                            from: messageData.from,
-                            type: 'text',
-                            text: { body: username }
-                        };
-
-                        // Process like a new request
                         await services.sendWhatsAppMessage(from, {
                             messaging_product: "whatsapp",
                             to: from,
@@ -75,7 +68,6 @@ export function setupRoutes(app, services) {
                         });
                         
                         // Use the same message handling logic
-                        const username = simulatedMessage.text.body.trim();
                         await handleScreenshotRequest(username, from);
                         
                     } else {
@@ -90,8 +82,8 @@ export function setupRoutes(app, services) {
                     return res.sendStatus(200);
                 }
 
-                // Handle regular feedback responses
                 const [action, username, messageId] = buttonId.split('_');
+                // Rest of the feedback handling code...
                 if (action === 'yes' || action === 'no') {
                     // Handle initial feedback
                     await logger.logFeedback({

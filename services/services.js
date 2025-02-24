@@ -980,13 +980,52 @@ setInterval(() => {
 // Add automateProcess function definition
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
+        const options = new chrome.Options();
+        // Fix headless option for newer Chrome versions
+        options.addArguments('--headless=new', '--no-sandbox', '--disable-dev-shm-usage');
+
         const driver = await new Builder()
             .forBrowser('chrome')
-            .setChromeOptions(new chrome.Options().headless())
+            .setChromeOptions(options)
             .build();
             
         try {
             await driver.get(match.url);
+            
+            // Handle cookie consent dialogs
+            try {
+                // Wait up to 5 seconds for any cookie dialog
+                await driver.wait(async () => {
+                    try {
+                        // Common consent dialog selectors
+                        const consentSelectors = [
+                            '.category-menu-switch-handler',
+                            '#onetrust-accept-btn-handler',
+                            '.cookie-consent-accept',
+                            '[aria-label="Accept cookies"]'
+                        ];
+
+                        for (const selector of consentSelectors) {
+                            try {
+                                const buttons = await driver.findElements(By.css(selector));
+                                if (buttons.length > 0) {
+                                    await buttons[0].click();
+                                    await driver.sleep(1000);
+                                    return true;
+                                }
+                            } catch (e) {
+                                continue;
+                            }
+                        }
+                        return true;
+                    } catch (e) {
+                        return true;
+                    }
+                }, 5000);
+            } catch (cookieError) {
+                console.log('Cookie consent handling completed or timed out');
+            }
+            
             await executeInstructions(
                 driver, 
                 match.username, 

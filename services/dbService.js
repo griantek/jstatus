@@ -3,22 +3,30 @@ import { supabase } from '../config/supabase.js';
 export const dbService = {
     async logFeedback(feedbackData) {
         try {
+            if (!feedbackData || !feedbackData.userId || !feedbackData.whatsappNumber) {
+                console.log('Invalid feedback data:', feedbackData);
+                return null;
+            }
+
             const { data, error } = await supabase
                 .from('feedback_logs')
                 .insert([{
                     user_id: feedbackData.userId,
                     whatsapp_number: feedbackData.whatsappNumber,
-                    feedback: feedbackData.feedback,
+                    feedback: feedbackData.feedback || 'pending',
                     request_id: feedbackData.requestId,
                     message_id: feedbackData.messageId,
-                    reprocess_requested: feedbackData.reprocessRequested,
+                    reprocess_requested: feedbackData.reprocessRequested || false,
                     created_at: new Date().toISOString()
                 }]);
 
-            if (error) throw error;
+            if (error) {
+                console.error('Supabase error:', error);
+                throw error;
+            }
             return data;
         } catch (error) {
-            console.error('Error logging feedback:', error);
+            console.error('Error logging feedback:', error.message);
             throw error;
         }
     },
