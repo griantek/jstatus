@@ -1001,14 +1001,13 @@ setInterval(() => {
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
         const options = new chrome.Options();
-        options.addArguments(
-            '--headless=new',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            '--start-maximized',  // Start with maximized window
-            '--window-size=1920,1080',  // Set minimum window size
-            '--force-device-scale-factor=1'  // Force 100% zoom
-        );
+        options.addArguments([
+            "--headless",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--window-size=1920,1080",
+            "--incognito"
+        ]);
 
         const driver = await new Builder()
             .forBrowser('chrome')
