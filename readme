@@ -63,3 +63,13 @@ The SQLite database contains:
 - Screenshot sharing
 - Error notifications
 - Webhook support for user requests
+
+
+# INSTALLATION
+
+run this before starting
+```
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+```

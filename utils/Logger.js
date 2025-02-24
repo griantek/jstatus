@@ -166,6 +166,37 @@ class Logger {
             return null;
         }
     }
+
+    async logFeedback(data) {
+        try {
+            const year = new Date().getFullYear();
+            const feedbackLogFile = path.join(this.baseLogPath, `feedback_logs_${year}.json`);
+            
+            let feedbacks = [];
+            try {
+                const existingData = await fs.readFile(feedbackLogFile, 'utf8');
+                feedbacks = JSON.parse(existingData);
+            } catch {
+                // File doesn't exist yet
+            }
+
+            const feedbackEntry = {
+                timestamp: new Date().toISOString(),
+                userId: data.userId,
+                whatsappNumber: data.whatsappNumber,
+                feedback: data.feedback,
+                reprocessRequested: data.reprocessRequested || false,
+                originalRequestId: data.requestId,
+                messageId: data.messageId
+            };
+
+            feedbacks.push(feedbackEntry);
+            await fs.writeFile(feedbackLogFile, JSON.stringify(feedbacks, null, 2));
+            return feedbackEntry;
+        } catch (error) {
+            console.error('Error logging feedback:', error);
+        }
+    }
 }
 
 export const logger = new Logger();
