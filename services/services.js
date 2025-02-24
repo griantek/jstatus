@@ -930,12 +930,15 @@ setInterval(() => {
     screenshotManager.clearAllScreenshots();
 }, 15 * 60 * 1000);
 
-// Add automateProcess function definition
+// Update automateProcess function definition
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
+        const options = new chrome.Options();
+        options.addArguments('--headless', '--no-sandbox', '--disable-dev-shm-usage');
+
         const driver = await new Builder()
             .forBrowser('chrome')
-            .setChromeOptions(new chrome.Options().headless())
+            .setChromeOptions(options)
             .build();
             
         try {

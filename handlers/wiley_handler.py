@@ -6,7 +6,7 @@ import os
 import sys
 import json
 import time
-from PIL import Image
+from PIL import Image  # Ensure Pillow is installed
 import io
 
 def take_full_screenshot(driver, filepath):

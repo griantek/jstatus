@@ -11,6 +11,11 @@ import {
     automateProcess  // Now this will work because it's exported
 } from '../services/services.js';
 
+// Add path resolution for virtual environment
+const VENV_PYTHON = process.env.VIRTUAL_ENV 
+    ? path.join(process.env.VIRTUAL_ENV, 'bin', 'python')
+    : path.join(process.cwd(), '.venv', 'bin', 'python');
+
 // Journal handler functions
 export const handleManuscriptCentral = async (match, order, whatsappNumber, userId) => {
     await automateProcess(match, order, whatsappNumber, userId);
@@ -32,7 +37,8 @@ export const handleTandFOnline = async (match, order, whatsappNumber, userId) =>
         }
 
         const result = await new Promise((resolve, reject) => {
-            const pythonProcess = spawn('python', [
+            // Use virtual environment Python
+            const pythonProcess = spawn(VENV_PYTHON, [
                 'handlers/tandf_handler.py',
                 match.url,
                 match.username,
@@ -120,7 +126,8 @@ export const handleWiley = async (match, order, whatsappNumber, userId) => {
         }
 
         const result = await new Promise((resolve, reject) => {
-            const pythonProcess = spawn('python', [
+            // Use virtual environment Python
+            const pythonProcess = spawn(VENV_PYTHON, [
                 'handlers/wiley_handler.py',
                 match.url,
                 match.username,
