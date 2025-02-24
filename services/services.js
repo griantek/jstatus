@@ -1001,13 +1001,28 @@ setInterval(() => {
 async function automateProcess(match, order, whatsappNumber, userId) {
     try {
         const options = new chrome.Options();
+        
+        // Updated Chrome options to match Python's SeleniumBase configuration
         options.addArguments([
-            "--headless",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--window-size=1920,1080",
-            "--incognito"
+            '--headless=new',  // Use new headless mode
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',   // Disable GPU hardware acceleration
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--disable-notifications',
+            '--window-size=1920,1080',
+            // '--start-maximized',
+            '--force-device-scale-factor=1',
+            '--hide-scrollbars'
         ]);
+
+        // Add required preferences
+        options.setUserPreferences({
+            'profile.default_content_setting_values.notifications': 2,
+            'profile.default_content_settings.popups': 0,
+            'download.prompt_for_download': false
+        });
 
         const driver = await new Builder()
             .forBrowser('chrome')
@@ -1015,42 +1030,19 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             .build();
             
         try {
+            // Set window size explicitly after browser creation
+            // await driver.manage().window().setRect({
+            //     width: 1920,
+            //     height: 1080,
+            //     x: 0,
+            //     y: 0
+            // });
+            
+            // Add small delay after window setup
+            await driver.sleep(1000);
             
             await driver.get(match.url);
-            
-            // Handle cookie consent dialogs
-            try {
-                // Wait up to 5 seconds for any cookie dialog
-                await driver.wait(async () => {
-                    try {
-                        // Common consent dialog selectors
-                        const consentSelectors = [
-                            '.category-menu-switch-handler',
-                            '#onetrust-accept-btn-handler',
-                            '.cookie-consent-accept',
-                            '[aria-label="Accept cookies"]'
-                        ];
-
-                        for (const selector of consentSelectors) {
-                            try {
-                                const buttons = await driver.findElements(By.css(selector));
-                                if (buttons.length > 0) {
-                                    await buttons[0].click();
-                                    await driver.sleep(1000);
-                                    return true;
-                                }
-                            } catch (e) {
-                                continue;
-                            }
-                        }
-                        return true;
-                    } catch (e) {
-                        return true;
-                    }
-                }, 5000);
-            } catch (cookieError) {
-                console.log('Cookie consent handling completed or timed out');
-            }
+            await driver.sleep(2000); // Wait for page load
             
             await executeInstructions(
                 driver, 
