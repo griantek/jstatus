@@ -44,32 +44,36 @@ def execute_instruction(driver, instruction, username=None, password=None):
 def handle_tandf(url, username, password):
     driver = None
     try:
-        driver = Driver(uc=True, headed=True , headless=True)  # Create headed browser
-        # print("Driver initialized")
-        
-        # Set window size
+        driver = Driver(uc=True, headed=True, headless=True)
         driver.set_window_size(1920, 1080)
         print("Window size set")
         
-        # Navigate to URL
+        # Get absolute path to keys file
+        keys_file = os.path.join(os.getcwd(), 'keys', 'taylo_KEYS.txt')
+        print(f"Looking for keys file at: {keys_file}")
+
+        if not os.path.exists(keys_file):
+            print(f"Keys file not found at {keys_file}")
+            raise FileNotFoundError(f"Keys file not found at {keys_file}")
+
+        # Navigate to URL with delay
         driver.get("https://rp.tandfonline.com/dashboard/")
-        # print(f"Navigated to {url}")
-        time.sleep(5)  # Wait for page load
+        driver.sleep(5)  # Wait for page load
 
         screenshots = []
         
-        # Read instructions file
+        # Read instructions file with error handling
         try:
-            with open('keys/tandf_KEYS.txt', 'r') as f:
+            with open(keys_file, 'r') as f:
                 instructions = [line.strip() for line in f if line.strip()]
-            # print(f"Read {len(instructions)} instructions")
+            print(f"Successfully read {len(instructions)} instructions")
         except Exception as e:
             print(f"Error reading instructions file: {str(e)}")
             instructions = []
 
-        # Execute each instruction
-        for instruction in instructions:
-            # print(f"Executing: {instruction}")
+        # Execute each instruction with logging
+        for idx, instruction in enumerate(instructions):
+            print(f"Executing instruction {idx + 1}/{len(instructions)}: {instruction}")
             screenshot = execute_instruction(driver, instruction, username, password)
             if screenshot:
                 screenshots.append(screenshot)
@@ -78,7 +82,8 @@ def handle_tandf(url, username, password):
         result = {
             "status": "success",
             "screenshots": screenshots,
-            "message": f"Completed {len(instructions)} instructions"
+            "message": f"Completed {len(instructions)} instructions",
+            "debug": f"Read {len(instructions)} instructions from {keys_file}"
         }
         
     except Exception as e:
@@ -91,8 +96,8 @@ def handle_tandf(url, username, password):
     finally:
         if driver:
             driver.quit()
-        print(json.dumps(result))  # Print final result
-        sys.stdout.flush()         # Ensure output is sent
+        print(json.dumps(result))
+        sys.stdout.flush()
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:

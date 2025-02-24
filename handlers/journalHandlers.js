@@ -27,11 +27,19 @@ export const handleEditorialManager = async (match, order, whatsappNumber, userI
 
 export const handleTandFOnline = async (match, order, whatsappNumber, userId) => {
     const sessionId = SessionManager.createSession(whatsappNumber);
-    const session = SessionManager.getSession(sessionId);
-
+    
     try {
-        console.log(`Starting TandF automation with SeleniumBase for URL: ${match.url}`);
+        console.log(`Starting TandF automation with SeleniumBase`);
         
+        // Verify keys file exists
+        const keysFile = path.join(process.cwd(), 'keys', 'taylo_KEYS.txt');
+        if (!fs.existsSync(keysFile)) {
+            console.error(`Keys file not found at ${keysFile}`);
+            throw new Error('TandF configuration file missing');
+        }
+        console.log(`Using keys file: ${keysFile}`);
+
+        // Create screenshots directory if it doesn't exist
         if (!fs.existsSync('screenshots')) {
             fs.mkdirSync('screenshots', { recursive: true });
         }
@@ -119,7 +127,7 @@ export const handleWiley = async (match, order, whatsappNumber, userId) => {
     const session = SessionManager.getSession(sessionId);
 
     try {
-        console.log(`Starting Wiley automation with SeleniumBase for URL: ${match.url}`);
+        console.log(`Starting Wiley automation with SeleniumBase `);
         
         if (!fs.existsSync('screenshots')) {
             fs.mkdirSync('screenshots', { recursive: true });
