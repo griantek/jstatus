@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/Logger.js';
 import { handleScreenshotRequest, processRows } from '../services/services.js';
+import { uploadService } from '../services/uploadService.js';
+import { supabase } from '../config/supabase.js';
 
 export function setupRoutes(app, services) {
     // Health check route
@@ -186,33 +188,26 @@ export function setupRoutes(app, services) {
                 });
             }
 
-            // Query database
-            services.db.all(
-                "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
-                [username],
-                async (err, emailRows) => {
-                    if (err) {
-                        return res.status(500).json({ error: "Database error" });
-                    }
+            // Query Supabase
+            let { data: rows, error } = await supabase
+                .from('journal_data')
+                .select('journal_link as url, username, password')
+                .eq('personal_email', username);
 
-                    if (emailRows?.length > 0) {
-                        await processRows(emailRows, res);
-                        return;
-                    }
+            if (error) throw error;
 
-                    // Try Client_Name if no email match
-                    services.db.all(
-                        "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
-                        [username],
-                        async (err, clientRows) => {
-                            if (err) {
-                                return res.status(500).json({ error: "Database error" });
-                            }
-                            await processRows(clientRows, res);
-                        }
-                    );
-                }
-            );
+            if (!rows || rows.length === 0) {
+                // Try Client_Name if no email match
+                const { data: clientRows, error: clientError } = await supabase
+                    .from('journal_data')
+                    .select('journal_link as url, username, password')
+                    .eq('client_name', username);
+
+                if (clientError) throw clientError;
+                rows = clientRows;
+            }
+
+            await processRows(rows, res);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -268,6 +263,36 @@ export function setupRoutes(app, services) {
         } catch (error) {
             res.status(500).json({
                 error: 'Status check failed',
+                message: error.message
+            });
+        }
+    });
+
+    // Update upload-status route
+    app.post('/upload-status', async (req, res) => {
+        try {
+            const { journalId } = req.body;
+
+            if (!journalId) {
+                return res.status(400).json({
+                    error: 'Missing required parameter',
+                    message: 'journalId is required'
+                });
+            }
+
+            // Start the automated process
+            const result = await uploadService.automateScreenshotCapture(journalId);
+
+            res.status(200).json({
+                status: 'success',
+                message: 'Screenshot captured and uploaded successfully',
+                data: result
+            });
+
+        } catch (error) {
+            console.error('Upload status error:', error);
+            res.status(500).json({
+                error: 'Process failed',
                 message: error.message
             });
         }

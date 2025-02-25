@@ -1,14 +1,13 @@
 {
   "type": "module",
   "dependencies": {
+    "@supabase/supabase-js": "^1.35.7",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "p-queue": "^8.1.0",
     "selenium-webdriver": "^4.28.1",
-    "sqlite3": "^5.1.7",
-    "undetected-chromedriver": "github:ultrafunkamsterdam/undetected-chromedriver-node",
-    "@supabase/supabase-js": "^1.0.0"
+    "sqlite3": "^5.1.7"
   },
   "engines": {
     "node": ">=14.0.0",
