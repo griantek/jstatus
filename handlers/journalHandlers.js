@@ -8,13 +8,24 @@ import path from 'path';
 import { 
     screenshotManager, 
     SessionManager, 
-    automateProcess  // Now this will work because it's exported
+    automateProcess 
 } from '../services/services.js';
 
-// Add path resolution for virtual environment
-const VENV_PYTHON = process.env.VIRTUAL_ENV 
-    ? path.join(process.env.VIRTUAL_ENV, 'bin', 'python')
-    : path.join(process.cwd(), '.venv', 'bin', 'python');
+// Updated path resolution for virtual environment (Windows-compatible)
+const VENV_PYTHON = process.platform === 'win32'
+    ? path.join(process.cwd(), '.venv', 'Scripts', 'python.exe')  // Windows path
+    : path.join(process.cwd(), '.venv', 'bin', 'python');        // Unix path
+
+// Function to get Python executable path
+function getPythonPath() {
+    // First try the virtual environment
+    if (fs.existsSync(VENV_PYTHON)) {
+        return VENV_PYTHON;
+    }
+    
+    // Fallback to system Python
+    return process.platform === 'win32' ? 'python' : 'python3';
+}
 
 // Journal handler functions
 export const handleManuscriptCentral = async (match, order, whatsappNumber, userId) => {
@@ -123,24 +134,36 @@ export const handleTheSciPub = async (match, order, whatsappNumber, userId) => {
 };
 
 export const handleWiley = async (match, order, whatsappNumber, userId) => {
-    const sessionId = SessionManager.createSession(whatsappNumber);
-    const session = SessionManager.getSession(sessionId);
-
+    const sessionId = SessionManager.createSession(userId);  // Use userId instead of whatsappNumber
+    
     try {
-        console.log(`Starting Wiley automation with SeleniumBase `);
+        console.log(`Starting Wiley automation with SeleniumBase`);
         
         if (!fs.existsSync('screenshots')) {
             fs.mkdirSync('screenshots', { recursive: true });
         }
 
+        const pythonPath = getPythonPath();
+        console.log(`Using Python executable: ${pythonPath}`);
+        
+        // Resolve handler path relative to current file
+        const handlerPath = path.join(process.cwd(), 'handlers', 'wiley_handler.py');
+        console.log(`Using handler script: ${handlerPath}`);
+
+        if (!fs.existsSync(handlerPath)) {
+            throw new Error(`Handler script not found: ${handlerPath}`);
+        }
+
         const result = await new Promise((resolve, reject) => {
-            // Use virtual environment Python
-            const pythonProcess = spawn(VENV_PYTHON, [
-                'handlers/wiley_handler.py',
+            const pythonProcess = spawn(pythonPath, [
+                handlerPath,
                 match.url,
                 match.username,
                 match.password
-            ]);
+            ], {
+                stdio: ['pipe', 'pipe', 'pipe'],
+                shell: process.platform === 'win32'  // Use shell on Windows
+            });
 
             let stdoutData = '';
             let stderrData = '';
@@ -187,15 +210,23 @@ export const handleWiley = async (match, order, whatsappNumber, userId) => {
                     fs.unlinkSync(screenshot);
                 }
             }
+
+            // Only send WhatsApp message if whatsappNumber is provided
+            if (whatsappNumber) {
+                await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+            }
         } else {
             throw new Error(result.error || 'Failed to get screenshots');
         }
 
     } catch (error) {
         console.error("Wiley automation error:", error);
+        throw error;  // Rethrow the error for proper handling upstream
     } finally {
-        await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
-        await SessionManager.cleanupSession(sessionId);
+        // Only cleanup session if it's a WhatsApp request
+        if (whatsappNumber) {
+            await SessionManager.cleanupSession(sessionId);
+        }
     }
 };
 
@@ -213,28 +244,44 @@ export const handleSpringerNature = async (match, order, whatsappNumber, userId)
 
 // Main journal handler function
 export const handleJournal = async (match, order, whatsappNumber, userId) => {
-    const url = match.url.toLowerCase();
-    if (url.includes("manuscriptcentral")) {
-        await handleManuscriptCentral(match, order, whatsappNumber, userId);
-    } else if (url.includes("editorialmanager")) {
-        await handleEditorialManager(match, order, whatsappNumber, userId);
-    } else if (url.includes("tandfonline")) {
-        await handleTandFOnline(match, order, whatsappNumber, userId);
-    } else if (url.includes("taylorfrancis")) {
-        await handleTaylorFrancis(match, order, whatsappNumber, userId);
-    } else if (url.includes("cgscholar")) {
-        await handleCGScholar(match, order, whatsappNumber, userId);
-    } else if (url.includes("thescipub")) {
-        await handleTheSciPub(match, order, whatsappNumber, userId);
-    } else if (url.includes("wiley.scienceconnect.io") || url.includes("onlinelibrary.wiley")) {
-        await handleWiley(match, order, whatsappNumber, userId);
-    } else if (url.includes("periodicos")) {
-        await handlePeriodicos(match, order, whatsappNumber, userId);
-    } else if (url.includes("tspsubmission")) {
-        await handleTSPSubmission(match, order, whatsappNumber, userId);
-    } else if (url.includes("springernature")) {
-        await handleSpringerNature(match, order, whatsappNumber, userId);
-    } else {
-        console.log(`No handler for URL: ${match.url}`);
+    try {
+        const url = match.url.toLowerCase();
+        // For upload-status requests, whatsappNumber might be null
+        const isUploadRequest = !whatsappNumber;
+
+        if (url.includes("manuscriptcentral")) {
+            await handleManuscriptCentral(match, order, whatsappNumber, userId);
+        } else if (url.includes("editorialmanager")) {
+            await handleEditorialManager(match, order, whatsappNumber, userId);
+        } else if (url.includes("tandfonline")) {
+            await handleTandFOnline(match, order, whatsappNumber, userId);
+        } else if (url.includes("taylorfrancis")) {
+            await handleTaylorFrancis(match, order, whatsappNumber, userId);
+        } else if (url.includes("cgscholar")) {
+            await handleCGScholar(match, order, whatsappNumber, userId);
+        } else if (url.includes("thescipub")) {
+            await handleTheSciPub(match, order, whatsappNumber, userId);
+        } else if (url.includes("wiley.scienceconnect.io") || url.includes("onlinelibrary.wiley")) {
+            await handleWiley(match, order, whatsappNumber, userId);
+        } else if (url.includes("periodicos")) {
+            await handlePeriodicos(match, order, whatsappNumber, userId);
+        } else if (url.includes("tspsubmission")) {
+            await handleTSPSubmission(match, order, whatsappNumber, userId);
+        } else if (url.includes("springernature")) {
+            await handleSpringerNature(match, order, whatsappNumber, userId);
+        } else {
+            throw new Error(`No handler for URL: ${match.url}`);
+        }
+
+        // For upload requests, return the screenshots from the session
+        if (isUploadRequest) {
+            const userSession = screenshotManager.sessions.get(userId);
+            if (userSession) {
+                return Array.from(userSession.screenshots);
+            }
+        }
+    } catch (error) {
+        console.error(`Error in handleJournal: ${error.message}`);
+        throw error;
     }
 };
