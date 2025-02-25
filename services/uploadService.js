@@ -198,8 +198,11 @@ export const uploadService = {
         let userFolder = null;
         
         try {
+            // Convert journalId to string
+            const journalIdStr = String(journalId);
+
             // Clean up any existing folder first
-            const journalFolder = path.join(tempFolder, journalId);
+            const journalFolder = path.join(tempFolder, journalIdStr);
             if (fs.existsSync(journalFolder)) {
                 fs.rmSync(journalFolder, { recursive: true, force: true });
                 console.log(`Cleaned up existing folder: ${journalFolder}`);
@@ -223,7 +226,7 @@ export const uploadService = {
             };
 
             // Execute journal automation
-            await handleJournal(match, 1, null, journalId);
+            await handleJournal(match, 1, null, journalIdStr);  // Pass string version
 
             // Wait a moment for files to be written
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -290,9 +293,9 @@ export const uploadService = {
         } catch (error) {
             console.error('Automation error:', error);
             
-            // Ensure cleanup happens even on error
+            // Ensure cleanup happens even on error using string version
             try {
-                const journalFolder = path.join(tempFolder, journalId);
+                const journalFolder = path.join(tempFolder, String(journalId));
                 if (fs.existsSync(journalFolder)) {
                     fs.rmSync(journalFolder, { recursive: true, force: true });
                     console.log(`Cleaned up on error: ${journalFolder}`);
