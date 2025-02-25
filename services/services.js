@@ -2,7 +2,7 @@
 import { Builder, By, Key, until } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 import fs from "fs";
-import sqlite3 from "sqlite3";
+import { supabase } from '../config/supabase.js';
 import { performance } from "perf_hooks";
 import crypto from "crypto";
 import axios from "axios";
@@ -43,7 +43,6 @@ const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
 const iv = Buffer.from(process.env.ENCRYPTION_IV, 'hex');
 
 // Initialize core services
-const db = new sqlite3.Database(process.env.DB_PATH);
 const requestQueue = new PQueue({ concurrency: 1 });
 const queueStats = {
     total: 0,
@@ -797,41 +796,26 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
             console.log("Searching for:", username);
 
-            const rows = await new Promise((resolve, reject) => {
-                // First try to find by Personal_Email
-                db.all(
-                    "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Personal_Email = ?",
-                    [username],
-                    (err, emailRows) => {
-                        if (err) {
-                            reject(err);
-                            return;
-                        }
+            // First try to find by Personal_Email
+            let { data: emailRows, error: emailError } = await supabase
+                .from('journal_data')
+                .select('journal_link as url, username, password')
+                .eq('personal_email', username);
 
-                        if (emailRows && emailRows.length > 0) {
-                            console.log("Found by Personal_Email");
-                            resolve({ rows: emailRows, searchType: 'email' });
-                            return;
-                        }
+            if (emailError) throw emailError;
 
-                        // If no results by Personal_Email, try Client_Name
-                        db.all(
-                            "SELECT Journal_Link as url, Username as username, Password as password FROM journal_data WHERE Client_Name = ?",
-                            [username],
-                            (err, clientRows) => {
-                                if (err) {
-                                    reject(err);
-                                } else {
-                                    console.log("Found by Client_Name");
-                                    resolve({ rows: clientRows, searchType: 'client' });
-                                }
-                            }
-                        );
-                    }
-                );
-            });
+            // If no results by Personal_Email, try Client_Name
+            if (!emailRows || emailRows.length === 0) {
+                const { data: clientRows, error: clientError } = await supabase
+                    .from('journal_data')
+                    .select('journal_link as url, username, password')
+                    .eq('client_name', username);
 
-            if (!rows.rows || rows.rows.length === 0) {
+                if (clientError) throw clientError;
+                emailRows = clientRows;
+            }
+
+            if (!emailRows || emailRows.length === 0) {
                 await sendWhatsAppMessage(whatsappNumber, {
                     messaging_product: "whatsapp",
                     to: whatsappNumber,
@@ -1075,6 +1059,7 @@ async function processRows(rows, res) {
         let matches = rows.map(row => {
             let decrypted = {};
             try {
+                // Update field names to match Supabase column names
                 decrypted.url = row.url ? decrypt(row.url) : '';
                 decrypted.username = row.username ? decrypt(row.username) : '';
                 decrypted.password = row.password ? decrypt(row.password) : '';
@@ -1105,7 +1090,6 @@ async function processRows(rows, res) {
 // Add missing initialization function
 export function initializeServices() {
     return {
-        db,
         decrypt,
         screenshotManager,
         SessionManager,
@@ -1131,7 +1115,6 @@ export function initializeServices() {
 
 // Export required functions and objects
 export {
-    db,
     decrypt,
     screenshotManager,
     SessionManager,
@@ -1152,6 +1135,12 @@ export {
 // After screenshots are sent in sendToWhatsApp method, add feedback request
 async function sendFeedbackRequest(whatsappNumber, username) {
     try {
+        // Skip if whatsapp number is not provided
+        if (!whatsappNumber) {
+            console.log('Skipping feedback request - no WhatsApp number provided');
+            return;
+        }
+
         const messageId = uuidv4();
         await sendWhatsAppMessage(whatsappNumber, {
             messaging_product: "whatsapp",
