@@ -229,14 +229,29 @@ const screenshotManager = {
             const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
             const safeDescription = description.replace(/[^a-zA-Z0-9]/g, '_');
             const filename = `${safeDescription}_${timestamp}.png`;
-            const filepath = path.join(session.folder, filename);
+            
+            // Get the target directory from the session
+            const targetDir = session.folder;
+            
+            // Ensure the directory exists
+            if (!fs.existsSync(targetDir)) {
+                fs.mkdirSync(targetDir, { recursive: true });
+                console.log(`Created screenshot directory: ${targetDir}`);
+            }
 
-            const image = await driver.takeScreenshot();
-            await fs.promises.writeFile(filepath, image, 'base64');
+            const filepath = path.join(targetDir, filename);
+            console.log(`Attempting to save screenshot to: ${filepath}`);
 
-            session.screenshots.add(filepath);
-            console.log(`Screenshot saved: ${filepath}`);
-            return filepath;
+            try {
+                const image = await driver.takeScreenshot();
+                await fs.promises.writeFile(filepath, image, 'base64');
+                session.screenshots.add(filepath);
+                console.log(`Screenshot saved successfully: ${filepath}`);
+                return filepath;
+            } catch (screenshotError) {
+                console.error('Failed to capture or save screenshot:', screenshotError);
+                throw screenshotError;
+            }
         } catch (error) {
             console.error('Screenshot capture error:', error);
             throw error;

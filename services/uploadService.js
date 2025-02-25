@@ -143,8 +143,8 @@ export const uploadService = {
 
                     const publicUrl = `${process.env.SUPABASE_STORAGE_URL}/object/public/${bucketName}//${fileName}`;
                     uploadedUrls.push(publicUrl);
-                    console.log(`Successfully uploaded ${fileType} screenshot`);
-                    console.log('URL generated:', publicUrl);
+                    // console.log(`Successfully uploaded ${fileType} screenshot`);
+                    // console.log('URL generated:', publicUrl);
 
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 } catch (error) {
@@ -196,70 +196,65 @@ export const uploadService = {
     async automateScreenshotCapture(journalId) {
         const tempFolder = 'screenshots';
         let userFolder = null;
+        let screenshotResult = null;
+        const journalIdStr = String(journalId); // Move this to top scope
         
         try {
-            // Convert journalId to string
-            const journalIdStr = String(journalId);
-
-            // Clean up any existing folder first
             const journalFolder = path.join(tempFolder, journalIdStr);
+
+            // Clean up existing journal folder if it exists
             if (fs.existsSync(journalFolder)) {
                 fs.rmSync(journalFolder, { recursive: true, force: true });
-                console.log(`Cleaned up existing folder: ${journalFolder}`);
             }
 
-            // Create base screenshot directory
-            if (!fs.existsSync(tempFolder)) {
-                fs.mkdirSync(tempFolder, { recursive: true });
-                console.log(`Created base folder: ${tempFolder}`);
-            }
-
-            // Create fresh journal-specific folder
+            // Create fresh directories
+            fs.mkdirSync(tempFolder, { recursive: true });
             fs.mkdirSync(journalFolder, { recursive: true });
-            console.log(`Created journal folder: ${journalFolder}`);
 
+            console.log(`Created fresh folder structure in: ${journalFolder}`);
+
+            // Get journal details and execute automation
             const journalDetails = await this.getJournalDetails(journalId);
-            const match = {
+            await handleJournal({
                 url: journalDetails.url,
                 username: journalDetails.username,
                 password: journalDetails.password
-            };
+            }, 1, null, journalIdStr);
 
-            // Execute journal automation
-            await handleJournal(match, 1, null, journalIdStr);  // Pass string version
+            // Add longer delay to ensure screenshots are written
+            await new Promise(resolve => setTimeout(resolve, 8000));
 
-            // Wait a moment for files to be written
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Get all screenshots from the journal folder
+            let screenshots = [];
+            if (fs.existsSync(journalFolder)) {
+                // Get all PNG files directly in the journal folder
+                screenshots = fs.readdirSync(journalFolder)
+                    .filter(file => file.endsWith('.png'))
+                    .map(file => path.join(journalFolder, file));
 
-            // Find all subdirectories in the journal folder
-            const folders = fs.readdirSync(journalFolder, { withFileTypes: true })
-                .filter(dirent => dirent.isDirectory())
-                .map(dirent => dirent.name);
+                // Get all subdirectories
+                const subdirs = fs.readdirSync(journalFolder, { withFileTypes: true })
+                    .filter(dirent => dirent.isDirectory())
+                    .map(dirent => path.join(journalFolder, dirent.name));
 
-            if (folders.length === 0) {
-                throw new Error('No screenshot folder found after automation');
+                // Get screenshots from each subdirectory
+                for (const dir of subdirs) {
+                    if (fs.existsSync(dir)) {
+                        const subDirScreenshots = fs.readdirSync(dir)
+                            .filter(file => file.endsWith('.png'))
+                            .map(file => path.join(dir, file));
+                        screenshots.push(...subDirScreenshots);
+                    }
+                }
             }
 
-            // Use the most recent folder
-            userFolder = path.join(journalFolder, folders[0]);
-            console.log('Looking for screenshots in folder:', userFolder);
-
-            // Verify the folder exists before reading
-            if (!fs.existsSync(userFolder)) {
-                throw new Error(`Expected folder not found: ${userFolder}`);
-            }
-
-            // Get all screenshots
-            const screenshots = fs.readdirSync(userFolder)
-                .filter(file => file.endsWith('.png'))
-                .map(file => path.join(userFolder, file))
-                .sort((a, b) => fs.statSync(a).mtime.getTime() - fs.statSync(b).mtime.getTime());
-
-            console.log('Found screenshots:', screenshots);
-
-            if (!screenshots.length) {
+            if (screenshots.length === 0) {
                 throw new Error('No screenshots were generated');
             }
+
+            // Sort and process screenshots
+            screenshots.sort((a, b) => fs.statSync(a).birthtimeMs - fs.statSync(b).birthtimeMs);
+            console.log('Found screenshots:', screenshots);
 
             // Read screenshot files
             const screenshotBuffers = await Promise.all(
@@ -270,41 +265,34 @@ export const uploadService = {
             );
 
             // Upload screenshots
-            const result = await this.uploadMultipleScreenshots(
+            screenshotResult = await this.uploadMultipleScreenshots(
                 journalId,
                 journalDetails.searchQuery,
                 screenshotBuffers
             );
 
-            // Clean up all folders
-            if (fs.existsSync(journalFolder)) {
-                fs.rmSync(journalFolder, { recursive: true, force: true });
-                console.log(`Final cleanup of folder: ${journalFolder}`);
-            }
-
             return {
                 success: true,
                 journalId: journalDetails.journalId,
                 searchQuery: journalDetails.searchQuery,
-                screenshots: result.urls,
-                count: result.count
+                screenshots: screenshotResult.urls,
+                count: screenshotResult.count
             };
 
         } catch (error) {
             console.error('Automation error:', error);
-            
-            // Ensure cleanup happens even on error using string version
+            throw error;
+        } finally {
+            // Clean up the journal folder using journalIdStr from outer scope
             try {
-                const journalFolder = path.join(tempFolder, String(journalId));
+                const journalFolder = path.join(tempFolder, journalIdStr);
                 if (fs.existsSync(journalFolder)) {
                     fs.rmSync(journalFolder, { recursive: true, force: true });
-                    console.log(`Cleaned up on error: ${journalFolder}`);
+                    console.log(`Cleaned up folder: ${journalFolder}`);
                 }
             } catch (cleanupError) {
                 console.error('Cleanup error:', cleanupError);
             }
-            
-            throw error;
         }
     }
 };
