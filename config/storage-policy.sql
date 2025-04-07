@@ -10,19 +10,19 @@ DROP POLICY IF EXISTS "Enable upload to status_screenshot folder" ON storage.obj
 CREATE POLICY "Enable read access for all users"
 ON storage.objects FOR SELECT
 TO public
-USING (bucket_id = 'status_screenshot');
+USING (bucket_id = 'status-screenshot');
 
 CREATE POLICY "Enable insert access for all users"
 ON storage.objects FOR INSERT
 TO public
-WITH CHECK (bucket_id = 'status_screenshot');
+WITH CHECK (bucket_id = 'status-screenshot');
 
 CREATE POLICY "Enable update access for all users"
 ON storage.objects FOR UPDATE
 TO public
-USING (bucket_id = 'status_screenshot');
+USING (bucket_id = 'status-screenshot');
 
 CREATE POLICY "Enable delete access for all users"
 ON storage.objects FOR DELETE
 TO public
-USING (bucket_id = 'status_screenshot');
+USING (bucket_id = 'status-screenshot');

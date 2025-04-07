@@ -114,7 +114,7 @@ export const uploadService = {
     async uploadMultipleScreenshots(journalId, clientEmail, screenshotBuffers) {
         const uploadedUrls = [];
         try {
-            const bucketName = 'status_screenshot';
+            const bucketName = 'status-screenshot';
             const isMultipleScreenshots = screenshotBuffers.length > 1;
 
             // Process each screenshot buffer
