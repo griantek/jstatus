@@ -1006,12 +1006,11 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             '--headless=new',  // Use new headless mode
             '--no-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu',   // Disable GPU hardware acceleration
+            '--disable-gpu',
             '--disable-software-rasterizer',
             '--disable-extensions',
             '--disable-notifications',
             '--window-size=1920,1080',
-            // '--start-maximized',
             '--force-device-scale-factor=1',
             '--hide-scrollbars'
         ]);

@@ -37,7 +37,7 @@ export const handleEditorialManager = async (match, order, whatsappNumber, userI
 };
 
 export const handleTandFOnline = async (match, order, whatsappNumber, userId) => {
-    const sessionId = SessionManager.createSession(whatsappNumber);
+    const sessionId = SessionManager.createSession(userId);  // Use userId instead of whatsappNumber
     
     try {
         console.log(`Starting TandF automation with SeleniumBase`);
@@ -95,19 +95,46 @@ export const handleTandFOnline = async (match, order, whatsappNumber, userId) =>
         });
 
         if (result.status === 'success' && Array.isArray(result.screenshots)) {
+            // Ensure user session exists and create the session directory
             const userSession = screenshotManager.sessions.get(userId) || screenshotManager.createSession(userId);
+            
+            // Ensure the user session folder exists
+            if (!fs.existsSync(userSession.folder)) {
+                fs.mkdirSync(userSession.folder, { recursive: true });
+                console.log(`Created user session folder: ${userSession.folder}`);
+            }
 
             for (const screenshot of result.screenshots) {
-                if (fs.existsSync(screenshot)) {
-                    const screenshotContent = fs.readFileSync(screenshot);
-                    const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
-                    const filename = `tandf_status_${timestamp}.png`;
-                    const filepath = path.join(userSession.folder, filename);
-
-                    fs.writeFileSync(filepath, screenshotContent);
-                    userSession.screenshots.add(filepath);
-                    fs.unlinkSync(screenshot);
+                const screenshotPath = path.resolve(screenshot); // Get absolute path
+                console.log(`Processing screenshot at absolute path: ${screenshotPath}`);
+                
+                if (fs.existsSync(screenshotPath)) {
+                    try {
+                        const screenshotContent = fs.readFileSync(screenshotPath);
+                        const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
+                        const filename = `tandf_status_${timestamp}.png`;
+                        const filepath = path.join(userSession.folder, filename);
+                        
+                        console.log(`Writing screenshot to: ${filepath}`);
+                        fs.writeFileSync(filepath, screenshotContent);
+                        userSession.screenshots.add(filepath);
+                        
+                        // Only delete original after successful copy
+                        fs.unlinkSync(screenshotPath);
+                        console.log(`Deleted original screenshot: ${screenshotPath}`);
+                    } catch (error) {
+                        console.error(`Error processing screenshot ${screenshotPath}:`, error);
+                    }
+                } else {
+                    console.warn(`Screenshot file not found: ${screenshotPath}`);
+                    console.warn(`Current working directory: ${process.cwd()}`);
+                    console.warn(`Files in screenshots directory:`, fs.readdirSync('screenshots'));
                 }
+            }
+            
+            // Only send to WhatsApp if a phone number is provided
+            if (whatsappNumber) {
+                await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
             }
         } else {
             throw new Error(result.error || 'Failed to get screenshots');
@@ -115,9 +142,12 @@ export const handleTandFOnline = async (match, order, whatsappNumber, userId) =>
 
     } catch (error) {
         console.error("TandF automation error:", error);
+        throw error;  // Rethrow for proper handling upstream
     } finally {
-        await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
-        await SessionManager.cleanupSession(sessionId);
+        // Only cleanup session if it's a WhatsApp request
+        if (whatsappNumber) {
+            await SessionManager.cleanupSession(sessionId);
+        }
     }
 };
 
@@ -261,7 +291,7 @@ export const handleJournal = async (match, order, whatsappNumber, userId) => {
             await handleCGScholar(match, order, whatsappNumber, userId);
         } else if (url.includes("thescipub")) {
             await handleTheSciPub(match, order, whatsappNumber, userId);
-        } else if (url.includes("wiley.scienceconnect.io") || url.includes("onlinelibrary.wiley")) {
+        } else if (url.includes("wiley")) {
             await handleWiley(match, order, whatsappNumber, userId);
         } else if (url.includes("periodicos")) {
             await handlePeriodicos(match, order, whatsappNumber, userId);

@@ -7,6 +7,40 @@ import sys
 import json
 import time
 
+def take_full_screenshot(driver, filepath):
+    """Take full page screenshot with multiple fallback methods"""
+    try:
+        # Method 1: Get page dimensions
+        total_height = driver.execute_script("return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);")
+        total_width = driver.execute_script("return Math.max(document.body.scrollWidth, document.documentElement.scrollWidth);")
+        
+        if total_height == 0:  # If height is 0, use viewport height
+            total_height = driver.execute_script("return window.innerHeight")
+        if total_width == 0:  # If width is 0, use viewport width
+            total_width = driver.execute_script("return window.innerWidth")
+        
+        # Ensure minimum dimensions
+        total_height = max(total_height, 1080)
+        total_width = max(total_width, 1920)
+        
+        # Set window size
+        driver.set_window_size(total_width, total_height)
+        time.sleep(2)  # Wait for resize
+        
+        # Try different screenshot methods
+        try:
+            # Try body screenshot
+            body = driver.find_element(By.TAG_NAME, 'body')
+            body.screenshot(filepath)
+        except Exception as e:
+            print(f"Body screenshot failed, trying full page: {e}")
+            driver.save_screenshot(filepath)
+            
+    except Exception as e:
+        print(f"Screenshot error: {e}")
+        # Final fallback: basic screenshot
+        driver.get_screenshot_as_file(filepath)
+
 def execute_instruction(driver, instruction, username=None, password=None):
     try:
         actions = ActionChains(driver)
@@ -29,14 +63,20 @@ def execute_instruction(driver, instruction, username=None, password=None):
             except:
                 time.sleep(1)  # Default 1 second if parse fails
         elif instruction == "SCRNSHT":
-            os.makedirs("screenshots", exist_ok=True)  # Standardized folder name
+            # Create a standard screenshots directory in the project root
+            os.makedirs("screenshots", exist_ok=True)
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             screenshot_path = os.path.join("screenshots", f"tandf_{timestamp}.png")
-            driver.get_screenshot_as_file(screenshot_path)
-            return screenshot_path
             
-        # time.sleep(1)  # Small delay after each action
-        
+            # Use the same take_full_screenshot method as in Wiley handler
+            take_full_screenshot(driver, screenshot_path)
+            print(f"Screenshot taken: {screenshot_path}")
+            return screenshot_path
+        elif instruction == "GOTOURL":
+            print("Navigating to TandF dashboard")
+            driver.get("https://rp.tandfonline.com/dashboard/")
+            time.sleep(5)  # Wait 5 seconds after navigation
+            
     except Exception as e:
         print(f"Error executing {instruction}: {str(e)}")
     return None
@@ -44,6 +84,7 @@ def execute_instruction(driver, instruction, username=None, password=None):
 def handle_tandf(url, username, password):
     driver = None
     try:
+        # Match Wiley's headless mode for consistency
         driver = Driver(uc=True, headed=True, headless=True)
         driver.set_window_size(1920, 1080)
         print("Window size set")
