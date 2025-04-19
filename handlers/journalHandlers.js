@@ -389,6 +389,10 @@ export const handlePleiadesOnline = async (match, order, whatsappNumber, userId)
     await automateProcess(match, order, whatsappNumber, userId);
 };
 
+export const handleSagePeerReview = async (match, order, whatsappNumber, userId) => {
+    await automateProcess(match, order, whatsappNumber, userId);
+};
+
 // Unified handler for submit.*.org sites (AJSM, OJSM, etc.)
 export const handleSubmitOrg = async (match, order, whatsappNumber, userId) => {
     const url = match.url.toLowerCase();
@@ -441,6 +445,8 @@ export const handleJournal = async (match, order, whatsappNumber, userId) => {
         } else if (url.match(/submit\.[a-z]+\.org/)) {
             // Unified handler for all submit.*.org domains
             await handleSubmitOrg(match, order, whatsappNumber, userId);
+        } else if (url.includes("peerreview.sagepub")) {
+            await handleSagePeerReview(match, order, whatsappNumber, userId);
         } else {
             throw new Error(`No handler for URL: ${match.url}`);
         }

@@ -519,8 +519,9 @@ async function executeInstructions(driver, username, password, order, journalLin
             } else if (journalLink.includes("pleiadesonline")) {
                 keysFile = "keys/pleiades_KEYS.txt";
             } else if (journalLink.match(/submit\.[a-z]+\.org/)) {
-                // Use a single keys file for all submit.*.org sites
                 keysFile = "keys/submit_org_KEYS.txt";
+            } else if (journalLink.includes("peerreview.sagepub")) {
+                keysFile = "keys/sage_KEYS.txt";
             } else {
                 throw new Error(`No keys file defined for URL: ${journalLink}`);
             }
@@ -597,8 +598,9 @@ async function executeInstructions(driver, username, password, order, journalLin
                 } else if (clickTarget === "loginButton") {
                     inputElement = await driver.findElement(By.id("login-button-default"));
                 } else {
-                    console.log(`Unknown CLICK target: ${clickTarget}`);
-                    continue;
+                    // console.log(`Unknown CLICK target: ${clickTarget}`);
+                    // continue;
+                    inputElement = await driver.findElement(By.id("MainContent"));
                 }
                 
                 await waitForClickable(driver, inputElement);
@@ -1016,7 +1018,7 @@ async function automateProcess(match, order, whatsappNumber, userId, customKeysF
         const options = new chrome.Options();
         
         options.addArguments([
-            // '--headless=new',
+            '--headless=new',
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
