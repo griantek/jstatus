@@ -272,6 +272,139 @@ export const handleSpringerNature = async (match, order, whatsappNumber, userId)
     await automateProcess(match, order, whatsappNumber, userId);
 };
 
+export const handleMedknowOnline = async (match, order, whatsappNumber, userId) => {
+    const sessionId = SessionManager.createSession(userId);
+    
+    try {
+        console.log(`Starting Medknow automation with SeleniumBase`);
+        
+        // Verify keys file exists
+        const keysFile = path.join(process.cwd(), 'keys', 'medknow_KEYS.txt');
+        if (!fs.existsSync(keysFile)) {
+            console.error(`Keys file not found at ${keysFile}`);
+            throw new Error('Medknow configuration file missing');
+        }
+        console.log(`Using keys file: ${keysFile}`);
+
+        // Create screenshots directory if it doesn't exist
+        if (!fs.existsSync('screenshots')) {
+            fs.mkdirSync('screenshots', { recursive: true });
+        }
+
+        // Create user session directory immediately
+        const userSession = screenshotManager.sessions.get(userId) || screenshotManager.createSession(userId);
+        if (!fs.existsSync(userSession.folder)) {
+            fs.mkdirSync(userSession.folder, { recursive: true });
+            console.log(`Created user session folder: ${userSession.folder}`);
+        }
+
+        // Resolve handler path relative to current file
+        const handlerPath = path.join(process.cwd(), 'handlers', 'medknow_handler.py');
+        console.log(`Using handler script: ${handlerPath}`);
+
+        if (!fs.existsSync(handlerPath)) {
+            throw new Error(`Handler script not found: ${handlerPath}`);
+        }
+
+        const pythonPath = getPythonPath();
+        console.log(`Using Python executable: ${pythonPath}`);
+
+        const result = await new Promise((resolve, reject) => {
+            const pythonProcess = spawn(pythonPath, [
+                handlerPath,
+                match.url,
+                match.username,
+                match.password,
+                userSession.folder  // Pass user session folder as 4th arg
+            ], {
+                stdio: ['pipe', 'pipe', 'pipe'],
+                shell: process.platform === 'win32'  // Use shell on Windows
+            });
+
+            let stdoutData = '';
+            let stderrData = '';
+
+            pythonProcess.stdout.on('data', (data) => {
+                stdoutData += data.toString();
+                console.log('Python output:', data.toString());
+            });
+
+            pythonProcess.stderr.on('data', (data) => {
+                stderrData += data.toString();
+                console.error('Python error:', data.toString());
+            });
+
+            pythonProcess.on('close', (code) => {
+                if (code !== 0) {
+                    reject(new Error(`Process exited with code ${code}: ${stderrData}`));
+                    return;
+                }
+
+                try {
+                    const lastLine = stdoutData.trim().split('\n').pop();
+                    const result = JSON.parse(lastLine);
+                    resolve(result);
+                } catch (e) {
+                    console.error('JSON parse error:', e);
+                    reject(new Error('Failed to parse Python output'));
+                }
+            });
+        });
+
+        if (result.status === 'success' && Array.isArray(result.screenshots)) {
+            // Just register the screenshots in the session - they're already in the right folder
+            for (const screenshot of result.screenshots) {
+                if (fs.existsSync(screenshot)) {
+                    userSession.screenshots.add(screenshot);
+                    console.log(`Added screenshot to session: ${screenshot}`);
+                } else {
+                    console.warn(`Screenshot does not exist: ${screenshot}`);
+                }
+            }
+            
+            // Only send to WhatsApp if a phone number is provided
+            if (whatsappNumber) {
+                await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+            }
+        } else {
+            throw new Error(result.error || 'Failed to get screenshots');
+        }
+
+    } catch (error) {
+        console.error("Medknow automation error:", error);
+        throw error;  // Rethrow for proper handling upstream
+    } finally {
+        // Only cleanup session if it's a WhatsApp request
+        if (whatsappNumber) {
+            await SessionManager.cleanupSession(sessionId);
+        }
+    }
+};
+
+export const handleJisemJournal = async (match, order, whatsappNumber, userId) => {
+    await automateProcess(match, order, whatsappNumber, userId);
+};
+
+export const handlePleiadesOnline = async (match, order, whatsappNumber, userId) => {
+    await automateProcess(match, order, whatsappNumber, userId);
+};
+
+// Unified handler for submit.*.org sites (AJSM, OJSM, etc.)
+export const handleSubmitOrg = async (match, order, whatsappNumber, userId) => {
+    const url = match.url.toLowerCase();
+    const domain = url.match(/submit\.([a-z]+)\.org/);
+    const journalCode = domain ? domain[1].toUpperCase() : 'GENERIC';
+    
+    console.log(`Starting ${journalCode} automation using common submit_org handler`);
+    
+    // Always use the shared submit_org keys file for all submit.*.org sites
+    const keysFile = "keys/submit_org_KEYS.txt";
+    console.log(`Using shared keys file: ${keysFile}`);
+    
+    // Use the shared automation process
+    await automateProcess(match, order, whatsappNumber, userId, keysFile);
+};
+
 // Main journal handler function
 export const handleJournal = async (match, order, whatsappNumber, userId) => {
     try {
@@ -299,6 +432,15 @@ export const handleJournal = async (match, order, whatsappNumber, userId) => {
             await handleTSPSubmission(match, order, whatsappNumber, userId);
         } else if (url.includes("springernature")) {
             await handleSpringerNature(match, order, whatsappNumber, userId);
+        } else if (url.includes("medknow") || url.includes("review.jow")) {
+            await handleMedknowOnline(match, order, whatsappNumber, userId);
+        } else if (url.includes("jisem-journal")) {
+            await handleJisemJournal(match, order, whatsappNumber, userId);
+        } else if (url.includes("pleiadesonline")) {
+            await handlePleiadesOnline(match, order, whatsappNumber, userId);
+        } else if (url.match(/submit\.[a-z]+\.org/)) {
+            // Unified handler for all submit.*.org domains
+            await handleSubmitOrg(match, order, whatsappNumber, userId);
         } else {
             throw new Error(`No handler for URL: ${match.url}`);
         }

@@ -44,20 +44,16 @@ await screenshotManager.init();
 // Setup routes
 setupRoutes(app, services);
 
-// Cleanup handlers
+// Cleanup handlers for graceful shutdown
 process.on('exit', () => {
-    services.screenshotManager.clearAllScreenshots();
+    console.log('Server shutting down, performing cleanup...');
+    // Just clean up on exit - no need for periodic cleaning
 });
 
 process.on('SIGINT', () => {
-    services.screenshotManager.clearAllScreenshots();
+    console.log('Received SIGINT, performing cleanup before exit...');
     process.exit();
 });
-
-// Add periodic cleanup
-setInterval(() => {
-    services.screenshotManager.clearAllScreenshots();
-}, 15 * 60 * 1000); // Run every 15 minutes
 
 // Start the Express server
 app.listen(port, () => {

@@ -107,6 +107,61 @@ async function switchToActiveElement(driver) {
     return activeElement;
 }
 
+// Add this helper function to check if a file exists
+async function fileExists(filePath) {
+    try {
+        await fs.promises.access(filePath, fs.constants.F_OK);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Add this function to safely delete a directory
+async function safelyDeleteDirectory(directoryPath) {
+    if (!fs.existsSync(directoryPath)) {
+        return;
+    }
+    
+    try {
+        // Read all items in the directory
+        const items = await fs.promises.readdir(directoryPath);
+        
+        // Process each item (file or subdirectory)
+        for (const item of items) {
+            const itemPath = path.join(directoryPath, item);
+            const stats = await fs.promises.stat(itemPath);
+            
+            if (stats.isDirectory()) {
+                // Recursively delete subdirectory
+                await safelyDeleteDirectory(itemPath);
+            } else {
+                // Delete file
+                try {
+                    fs.unlinkSync(itemPath);
+                } catch (err) {
+                    console.log(`Could not delete file ${itemPath}: ${err.message}`);
+                }
+            }
+        }
+        
+        // Now that the directory is empty, delete it
+        try {
+            fs.rmdirSync(directoryPath);
+        } catch (err) {
+            console.log(`Could not delete directory ${directoryPath}: ${err.message}`);
+            // Try with rmSync as a fallback
+            try {
+                fs.rmSync(directoryPath, { force: true });
+            } catch (innerErr) {
+                console.log(`Final attempt to delete directory failed: ${innerErr.message}`);
+            }
+        }
+    } catch (error) {
+        console.error(`Error in safelyDeleteDirectory: ${error.message}`);
+    }
+}
+
 // Add this helper function near the top with other helper functions
 async function waitForClickable(driver, element, maxAttempts = 3) {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -342,10 +397,7 @@ const screenshotManager = {
             const userFolder = this.getUserFolder(userId);
             if (fs.existsSync(userFolder)) {
                 // Force removal of directory and all contents
-                fs.rmSync(userFolder, {
-                    recursive: true,
-                    force: true
-                });
+                await safelyDeleteDirectory(userFolder);
                 console.log(`Successfully deleted user folder: ${userFolder}`);
             }
             // Remove any session data
@@ -355,15 +407,17 @@ const screenshotManager = {
         }
     },
 
-    // Replace clearSession with simplified version
     clearSession(userId) {
         if (!userId) return;
-        this.deleteUserFolder(userId);
+        const userFolder = this.getUserFolder(userId);
+        if (fs.existsSync(userFolder)) {
+            safelyDeleteDirectory(userFolder)
+                .then(() => console.log(`Session cleared for user: ${userId}`))
+                .catch(err => console.error(`Error clearing session for user ${userId}:`, err));
+        }
+        this.sessions.delete(userId);
     },
 
-    // Remove the clear() method as it's no longer needed
-
-    // Modify clearAllScreenshots to be safer
     clearAllScreenshots() {
         // Only clean up sessions that are older than 30 minutes
         const MAX_SESSION_AGE = 30 * 60 * 1000; // 30 minutes
@@ -374,7 +428,9 @@ const screenshotManager = {
                 try {
                     const userFolder = this.getUserFolder(userId);
                     if (fs.existsSync(userFolder)) {
-                        fs.rmSync(userFolder, { recursive: true, force: true });
+                        safelyDeleteDirectory(userFolder)
+                            .then(() => console.log(`Old session cleaned for user: ${userId}`))
+                            .catch(err => console.error(`Error cleaning old session for user ${userId}:`, err));
                     }
                     this.sessions.delete(userId);
                 } catch (error) {
@@ -428,37 +484,49 @@ const SessionManager = {
 };
 
 // Core instruction execution
-async function executeInstructions(driver, username, password, order, journalLink, whatsappNumber, userId) {
+async function executeInstructions(driver, username, password, order, journalLink, whatsappNumber, userId, customKeysFile = null) {
     try {
         const startTime = performance.now();
         console.log("Execution started...");
 
-        // Determine the keys file based on the journal link
-        let keysFile;
-        if (journalLink.includes("manuscriptcentral")) {
-            keysFile = "keys/manus_KEYS.txt";
-        } else if (journalLink.includes("editorialmanager")) {
-            keysFile = "keys/edito_KEYS.txt";
-        // } else if (journalLink.includes("tandfonline")) {
-        } else if (journalLink.includes("taylorfrancis") || journalLink.includes("tandfonline")) {
-            keysFile = "keys/taylo_KEYS.txt";
-        } else if (journalLink.includes("cgscholar")) {
-            keysFile = "keys/cgsch_KEYS.txt";
-        } else if (journalLink.includes("thescipub")) {
-            keysFile = "keys/thesc_KEYS.txt";
-        } else if (journalLink.includes("wiley")) {
-            keysFile = "keys/wiley_KEYS.txt";
-        } else if (journalLink.includes("periodicos")) {
-            keysFile = "keys/perio_KEYS.txt";
-        } else if (journalLink.includes("tspsubmission")) {
-            keysFile = "keys/tspsu_KEYS.txt";
-        } else if (journalLink.includes("springernature")) {
-            keysFile = "keys/springer_KEYS.txt";
-        } else if (journalLink.includes("wiley.scienceconnect.io") || journalLink.includes("onlinelibrary.wiley")) {
-            keysFile = "keys/wiley_KEYS.txt";
-        } else {
-            throw new Error(`No keys file defined for URL: ${journalLink}`);
+        // Use custom keys file if provided, otherwise determine based on the journal link
+        let keysFile = customKeysFile;
+        if (!keysFile) {
+            if (journalLink.includes("manuscriptcentral")) {
+                keysFile = "keys/manus_KEYS.txt";
+            } else if (journalLink.includes("editorialmanager")) {
+                keysFile = "keys/edito_KEYS.txt";
+            } else if (journalLink.includes("taylorfrancis") || journalLink.includes("tandfonline")) {
+                keysFile = "keys/taylo_KEYS.txt";
+            } else if (journalLink.includes("cgscholar")) {
+                keysFile = "keys/cgsch_KEYS.txt";
+            } else if (journalLink.includes("thescipub")) {
+                keysFile = "keys/thesc_KEYS.txt";
+            } else if (journalLink.includes("wiley")) {
+                keysFile = "keys/wiley_KEYS.txt";
+            } else if (journalLink.includes("periodicos")) {
+                keysFile = "keys/perio_KEYS.txt";
+            } else if (journalLink.includes("tspsubmission")) {
+                keysFile = "keys/tspsu_KEYS.txt";
+            } else if (journalLink.includes("springernature")) {
+                keysFile = "keys/springer_KEYS.txt";
+            } else if (journalLink.includes("wiley.scienceconnect.io") || journalLink.includes("onlinelibrary.wiley")) {
+                keysFile = "keys/wiley_KEYS.txt";
+            } else if (journalLink.includes("medknow") || journalLink.includes("review.jow")) {
+                keysFile = "keys/medknow_KEYS.txt";
+            } else if (journalLink.includes("jisem-journal")) {
+                keysFile = "keys/jisem_KEYS.txt";
+            } else if (journalLink.includes("pleiadesonline")) {
+                keysFile = "keys/pleiades_KEYS.txt";
+            } else if (journalLink.match(/submit\.[a-z]+\.org/)) {
+                // Use a single keys file for all submit.*.org sites
+                keysFile = "keys/submit_org_KEYS.txt";
+            } else {
+                throw new Error(`No keys file defined for URL: ${journalLink}`);
+            }
         }
+        
+        console.log(`Using keys file: ${keysFile}`);
 
         // Read and filter instructions
         const rawInstructions = fs.readFileSync(keysFile, "utf-8").split("\n");
@@ -479,26 +547,23 @@ async function executeInstructions(driver, username, password, order, journalLin
 
             const elapsedTime = ((performance.now() - startTime) / 1000).toFixed(2);
 
-            // console.log(
-            //   `Time Elapsed: ${elapsedTime} seconds | Executing instruction [${
-            //     index + 1
-            //   }]: ${trimmedInstruction}`
-            // );
-
-            // console.log(`${trimmedInstruction}`);
-
             if (trimmedInstruction === "TAB") {
                 await driver.actions().sendKeys(Key.TAB).perform();
-                // let activeElement = await switchToActiveElement(driver);
-                // let text = await activeElement.getText();
-                // console.log(`Current highlighted text: ${text}`);
-                // await driver.sleep(2000);
+                await driver.sleep(1000);
             } else if (trimmedInstruction === "SPACE") {
                 await driver.actions().sendKeys(Key.SPACE).perform();
             } else if (trimmedInstruction === "ESC") {
                 await driver.actions().sendKeys(Key.ESCAPE).perform();
             } else if (trimmedInstruction === "ENTER") {
                 await driver.actions().sendKeys(Key.RETURN).perform();
+            } else if (trimmedInstruction === "UP") {
+                await driver.actions().sendKeys(Key.ARROW_UP).perform();
+            } else if (trimmedInstruction === "DOWN") {
+                await driver.actions().sendKeys(Key.ARROW_DOWN).perform();
+            } else if (trimmedInstruction === "LEFT") {
+                await driver.actions().sendKeys(Key.ARROW_LEFT).perform();
+            } else if (trimmedInstruction === "RIGHT") {
+                await driver.actions().sendKeys(Key.ARROW_RIGHT).perform();
             } else if (trimmedInstruction === "FIND") {
                 await driver.actions().keyDown(Key.CONTROL).perform();
                 await driver.actions().sendKeys("f").perform();
@@ -520,9 +585,6 @@ async function executeInstructions(driver, username, password, order, journalLin
             } else if (trimmedInstruction === "SCRNSHT") {
                 console.log("Taking screenshot of current page...");
                 await screenshotManager.capture(driver, username, userId);
-                // Remove the immediate deletion
-                // await sendWhatsAppImage(whatsappNumber, screenshotPath, ``);
-                // fs.unlinkSync(screenshotPath);
             } else if (trimmedInstruction.startsWith("INPUT-")) {
                 const inputString = trimmedInstruction.replace("INPUT-", "");
                 await driver.actions().sendKeys(inputString).perform();
@@ -539,13 +601,11 @@ async function executeInstructions(driver, username, password, order, journalLin
                     continue;
                 }
                 
-                // Use the new waitForClickable function instead of direct click
                 await waitForClickable(driver, inputElement);
                 console.log(`Clicked on element with target: ${clickTarget}`);
             } else if (trimmedInstruction === "CHKREGQS") {
                 console.log("Handling survey popup check...");
                 try {
-                    // Click on body first to ensure focus
                     const body = await driver.findElement(By.tagName('body'));
                     await body.click();
                     await driver.sleep(1000);
@@ -553,31 +613,24 @@ async function executeInstructions(driver, username, password, order, journalLin
                     const targetText = "Self-report your data to improve equity in research";
                     let found = false;
 
-                    // Store main window handle at the start
                     const mainWindow = await driver.getWindowHandle();
 
-                    // Do first 2 tabs and check
                     for (let i = 0; i < 2; i++) {
                         await driver.actions().sendKeys(Key.TAB).perform();
                         let activeElement = await switchToActiveElement(driver);
                         let text = await activeElement.getText();
                         console.log(`Tab ${i + 1} focused text:`, text || '[No text]');
 
-                        // Check specifically on second tab
                         if (i === 1) {
                             if (text.includes(targetText)) {
                                 console.log("Found target text at second tab");
                                 found = true;
 
-                                // Press enter to open popup
                                 await driver.actions().sendKeys(Key.RETURN).perform();
-                                // await driver.sleep(5000);
                                 console.log("Window opened.........");
 
-                                // Get all window handles after popup opens
                                 const handles = await driver.getAllWindowHandles();
 
-                                // Switch to popup window (last window in handles array)
                                 if (handles.length > 1) {
                                     const popupWindow = handles[handles.length - 1];
                                     await driver.switchTo().window(popupWindow);
@@ -585,22 +638,16 @@ async function executeInstructions(driver, username, password, order, journalLin
                                     console.log("Window closed.........");
                                 }
 
-                                // Switch back to main window
                                 await driver.switchTo().window(mainWindow);
                                 await driver.sleep(1000);
 
-                                // Ensure we're back on the main window
                                 console.log("Switching focus back to main window");
                                 await body.click();
                                 await driver.sleep(1000);
 
-                                // Do 2 tabs
                                 for (let i = 0; i < 4; i++) {
                                     await driver.actions().sendKeys(Key.TAB).perform();
-                                    // await driver.sleep(2000);
-                                    // console.log(`Tab ${i + 1} focused`);
                                 }
-                                // Press enter
                                 await driver.actions().sendKeys(Key.RETURN).perform();
                                 await driver.navigate().refresh();
                                 console.log("Page reloaded after survey completion");
@@ -608,17 +655,6 @@ async function executeInstructions(driver, username, password, order, journalLin
                                 break;
                             } else {
                                 console.log("Target text not found at second tab, doing reverse tabs");
-                                // await driver.sleep(5000);
-
-                                // Do 2 reverse tabs
-                                // for (let j = 0; j < 2; j++) {
-                                //   await driver.actions()
-                                //     .keyDown(Key.SHIFT)
-                                //     .sendKeys(Key.TAB)
-                                //     .keyUp(Key.SHIFT)
-                                //     .perform();
-                                //   await driver.sleep(5000);
-                                // }
                                 await driver.navigate().refresh();
                                 console.log("Page reloaded after survey completion");
                                 await driver.sleep(5000);
@@ -633,7 +669,6 @@ async function executeInstructions(driver, username, password, order, journalLin
                 } catch (error) {
                     console.log("Error during survey popup check:", error);
                     try {
-                        // Attempt to recover by switching to any available window
                         const handles = await driver.getAllWindowHandles();
                         if (handles.length > 0) {
                             await driver.switchTo().window(handles[0]);
@@ -647,7 +682,7 @@ async function executeInstructions(driver, username, password, order, journalLin
                     await handleEditorialManagerCHKSTS(driver, order, foundTexts, whatsappNumber, userId);
                 } else if (journalLink.includes("manuscriptcentral")) {
                     await handleManuscriptCentralCHKSTS(driver, order, foundTexts);
-                    await driver.sleep(20000); // Add a delay to ensure the element is focused
+                    await driver.sleep(20000);
                 } else if (journalLink.includes("tandfonline")) {
                     await handleTandFOnlineCHKSTS(driver, order, foundTexts);
                 } else if (journalLink.includes("taylorfrancis")) {
@@ -669,7 +704,18 @@ async function executeInstructions(driver, username, password, order, journalLin
                 }
             } else {
                 console.log(`Unknown instruction: ${trimmedInstruction}`);
-                // await driver.sleep(200000); // Add a delay to ensure the element is focused
+            }
+        }
+
+        if (journalLink.includes("medknow") || journalLink.includes("review.jow")) {
+            console.log("Taking final screenshot after completing all Medknow instructions...");
+            await driver.sleep(3000);
+            
+            try {
+                const finalScreenshot = await screenshotManager.capture(driver, `${username}_final`, userId);
+                console.log(`Final Medknow screenshot saved at: ${finalScreenshot}`);
+            } catch (screenshotError) {
+                console.error("Error capturing final screenshot:", screenshotError);
             }
         }
 
@@ -677,8 +723,9 @@ async function executeInstructions(driver, username, password, order, journalLin
         console.log(`Execution completed in ${totalTime} seconds.`);
     } catch (error) {
         console.error("Error during instruction execution:", error);
-        // Ensure screenshots are still sent even if there's an error
-        await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+        if (whatsappNumber) {
+            await screenshotManager.sendToWhatsApp(whatsappNumber, userId);
+        }
     }
 }
 
@@ -778,21 +825,8 @@ async function handleScreenshotRequest(username, whatsappNumber) {
         try {
             queueStats.current++;
             
-            // Send queue position message
-            // if (requestQueue.size > 0) {
-            //   await sendWhatsAppMessage(whatsappNumber, {
-            //     messaging_product: "whatsapp",
-            //     to: whatsappNumber,
-            //     type: "text",
-            //     text: { 
-            //       body: `Your request is in queue (Position: ${queueStats.getPosition(requestId)}). We'll process it shortly.` 
-            //     }
-            //   });
-            // }
-
             console.log(`Processing request ${requestId} for user ${username}`);
 
-            // Create or get user session
             let session = userSessions.get(username);
             if (!session) {
                 session = {
@@ -803,15 +837,12 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 userSessions.set(username, session);
             }
 
-            // Update last accessed time
             session.lastAccessed = Date.now();
 
-            // Rest of the handleScreenshotRequest implementation...
             await screenshotManager.deleteUserFolder(username);
 
             console.log("Searching for:", username);
 
-            // First try to find by Personal_Email
             let { data: emailRows, error: emailError } = await supabase
                 .from('journal_data')
                 .select('journal_link as url, username, password')
@@ -819,7 +850,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
             if (emailError) throw emailError;
 
-            // If no results by Personal_Email, try Client_Name
             if (!emailRows || emailRows.length === 0) {
                 const { data: clientRows, error: clientError } = await supabase
                     .from('journal_data')
@@ -840,7 +870,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 return;
             }
 
-            // Send greeting with found information
             const searchTypeText = rows.searchType === 'email' ? 'email address' : 'client name';
             await sendWhatsAppMessage(whatsappNumber, {
                 messaging_product: "whatsapp",
@@ -853,14 +882,10 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 }
             });
 
-            // Process automation and generate new screenshots
             let matches = rows.rows.map(row => {
-
-                // Try decryption with detailed logging
                 let decrypted = {};
                 try {
                     decrypted.url = row.url ? decrypt(row.url) : '';
-                    // console.log('Decrypted URL:', decrypted.url);
                 } catch (e) {
                     console.error('URL decryption error:', e);
                     decrypted.url = '';
@@ -868,7 +893,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
                 try {
                     decrypted.username = row.username ? decrypt(row.username) : '';
-                    // console.log('Decrypted username:', decrypted.username); 
                 } catch (e) {
                     console.error('Username decryption error:', e);
                     decrypted.username = '';
@@ -876,7 +900,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
 
                 try {
                     decrypted.password = row.password ? decrypt(row.password) : '';
-                    // console.log('Decrypted password:', decrypted.password);
                 } catch (e) {
                     console.error('Password decryption error:', e);
                     decrypted.password = '';
@@ -898,7 +921,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 return;
             }
 
-            // Process matches in handleScreenshotRequest only
             if (matches.length > 0) {
                 for (const [index, match] of matches.entries()) {
                     const journalStartTime = new Date().toISOString();
@@ -926,13 +948,10 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 }
             }
 
-            // Send all captured screenshots at once
             await screenshotManager.sendToWhatsApp(whatsappNumber, username);
 
-            // Clear the screenshots set after processing
             newlyGeneratedScreenshots.clear();
 
-            // Send completion message
             await sendWhatsAppMessage(whatsappNumber, {
                 messaging_product: "whatsapp",
                 to: whatsappNumber,
@@ -940,7 +959,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 text: { body: "All new status updates have been sent." }
             });
 
-            // Log completion
             const endTime = new Date();
             const duration = (endTime - startTime) / 1000;
 
@@ -951,12 +969,10 @@ async function handleScreenshotRequest(username, whatsappNumber) {
                 totalDuration: duration
             });
 
-            // Return matches for webhook handler
             return { matches };
 
         } catch (error) {
             console.error(`Error processing request ${requestId}:`, error);
-            // Log error
             const endTime = new Date();
             const duration = (endTime - startTime) / 1000;
 
@@ -970,7 +986,6 @@ async function handleScreenshotRequest(username, whatsappNumber) {
             throw error;
         } finally {
             queueStats.current--;
-            // Cleanup
             await screenshotManager.deleteUserFolder(username);
             console.log(`Completed request ${requestId}`);
         }
@@ -996,14 +1011,12 @@ setInterval(() => {
     screenshotManager.clearAllScreenshots();
 }, 15 * 60 * 1000);
 
-// Add automateProcess function definition
-async function automateProcess(match, order, whatsappNumber, userId) {
+async function automateProcess(match, order, whatsappNumber, userId, customKeysFile = null) {
     try {
         const options = new chrome.Options();
         
-        // Updated Chrome options to match Python's SeleniumBase configuration
         options.addArguments([
-            '--headless=new',  // Use new headless mode
+            // '--headless=new',
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
@@ -1015,7 +1028,6 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             '--hide-scrollbars'
         ]);
 
-        // Add required preferences
         options.setUserPreferences({
             'profile.default_content_setting_values.notifications': 2,
             'profile.default_content_settings.popups': 0,
@@ -1028,19 +1040,10 @@ async function automateProcess(match, order, whatsappNumber, userId) {
             .build();
             
         try {
-            // Set window size explicitly after browser creation
-            // await driver.manage().window().setRect({
-            //     width: 1920,
-            //     height: 1080,
-            //     x: 0,
-            //     y: 0
-            // });
-            
-            // Add small delay after window setup
             await driver.sleep(1000);
             
             await driver.get(match.url);
-            await driver.sleep(2000); // Wait for page load
+            await driver.sleep(2000);
             
             await executeInstructions(
                 driver, 
@@ -1049,7 +1052,8 @@ async function automateProcess(match, order, whatsappNumber, userId) {
                 order, 
                 match.url, 
                 whatsappNumber,
-                userId
+                userId,
+                customKeysFile  // Pass the custom keys file
             );
         } finally {
             await driver.quit();
@@ -1060,7 +1064,6 @@ async function automateProcess(match, order, whatsappNumber, userId) {
     }
 }
 
-// Add processRows function
 async function processRows(rows, res) {
     try {
         if (!rows || rows.length === 0) {
@@ -1073,7 +1076,6 @@ async function processRows(rows, res) {
         let matches = rows.map(row => {
             let decrypted = {};
             try {
-                // Update field names to match Supabase column names
                 decrypted.url = row.url ? decrypt(row.url) : '';
                 decrypted.username = row.username ? decrypt(row.username) : '';
                 decrypted.password = row.password ? decrypt(row.password) : '';
@@ -1101,7 +1103,6 @@ async function processRows(rows, res) {
     }
 }
 
-// Add missing initialization function
 export function initializeServices() {
     return {
         decrypt,
@@ -1119,7 +1120,8 @@ export function initializeServices() {
         iv,
         automateProcess,
         processRows,
-        // Add these missing function references
+        fileExists,
+        safelyDeleteDirectory,
         getSession: SessionManager.getSession.bind(SessionManager),
         createSession: SessionManager.createSession.bind(SessionManager),
         cleanupSession: SessionManager.cleanupSession.bind(SessionManager),
@@ -1127,7 +1129,6 @@ export function initializeServices() {
     };
 }
 
-// Export required functions and objects
 export {
     decrypt,
     screenshotManager,
@@ -1143,13 +1144,13 @@ export {
     key,
     iv,
     automateProcess,
-    processRows
+    processRows,
+    fileExists,
+    safelyDeleteDirectory
 };
 
-// After screenshots are sent in sendToWhatsApp method, add feedback request
 async function sendFeedbackRequest(whatsappNumber, username) {
     try {
-        // Skip if whatsapp number is not provided
         if (!whatsappNumber) {
             console.log('Skipping feedback request - no WhatsApp number provided');
             return;
@@ -1186,7 +1187,6 @@ async function sendFeedbackRequest(whatsappNumber, username) {
             }
         });
         
-        // Log feedback request to database
         await dbService.logFeedback({
             userId: username,
             whatsappNumber,
@@ -1200,12 +1200,10 @@ async function sendFeedbackRequest(whatsappNumber, username) {
     }
 }
 
-// Add function to handle reprocessing
 async function reprocessRequest(username, whatsappNumber) {
     return handleScreenshotRequest(username, whatsappNumber);
 }
 
-// Update exports
 export {
     reprocessRequest,
     sendFeedbackRequest
