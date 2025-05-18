@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { handleJournal } from '../handlers/journalHandlers.js';
 import { decrypt } from './services.js';
+import { screenshotManager } from './services.js';
 
 export const uploadService = {
     async uploadScreenshotAndUpdateStatus(journalId, clientEmail, screenshotBuffer) {
@@ -113,8 +114,10 @@ export const uploadService = {
 
     async uploadMultipleScreenshots(journalId, clientEmail, screenshotBuffers) {
         const uploadedUrls = [];
+        const uploadedFiles = []; // Track which files were successfully uploaded
+        
         try {
-            const bucketName = 'status_screenshot';
+            const bucketName = 'status-screenshot';
             const isMultipleScreenshots = screenshotBuffers.length > 1;
 
             // Process each screenshot buffer
@@ -131,7 +134,7 @@ export const uploadService = {
                         .upload(fileName, screenshotBuffers[i], {
                             contentType: 'image/png',
                             cacheControl: '3600',
-                            upsert: true
+                            upsert: true // This will overwrite existing files with the same name
                         });
 
                     console.log('Upload response:', { uploadData, uploadError });
@@ -143,8 +146,8 @@ export const uploadService = {
 
                     const publicUrl = `${process.env.SUPABASE_STORAGE_URL}/object/public/${bucketName}//${fileName}`;
                     uploadedUrls.push(publicUrl);
-                    // console.log(`Successfully uploaded ${fileType} screenshot`);
-                    // console.log('URL generated:', publicUrl);
+                    uploadedFiles.push(i); // Track which buffer indices were uploaded
+                    console.log(`Successfully uploaded file ${fileName}`);
 
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 } catch (error) {
@@ -184,7 +187,8 @@ export const uploadService = {
                 success: true,
                 url: statusLinkUrl, // Return only the URL that was used for the update
                 count: uploadedUrls.length,
-                totalAttempted: screenshotBuffers.length
+                totalAttempted: screenshotBuffers.length,
+                uploadedFiles // Return which files were uploaded
             };
 
         } catch (error) {
@@ -198,69 +202,113 @@ export const uploadService = {
         let userFolder = null;
         let screenshotResult = null;
         const journalIdStr = String(journalId);
+        const localFilePaths = []; // Track local file paths for cleanup
         
         try {
             const journalFolder = path.join(tempFolder, journalIdStr);
 
-            // Clean up existing journal folder if it exists
-            if (fs.existsSync(journalFolder)) {
-                fs.rmSync(journalFolder, { recursive: true, force: true });
-            }
-
-            // Create fresh directories
+            // Create fresh directories - but don't clean up existing folders to avoid deleting files in use
             fs.mkdirSync(tempFolder, { recursive: true });
             fs.mkdirSync(journalFolder, { recursive: true });
 
-            console.log(`Created fresh folder structure in: ${journalFolder}`);
+            console.log(`Ensuring folder structure exists: ${journalFolder}`);
 
             // Get journal details and execute automation
             const journalDetails = await this.getJournalDetails(journalId);
+            
+            // Execute the handleJournal function
             const screenshots = await handleJournal({
                 url: journalDetails.url,
                 username: journalDetails.username,
                 password: journalDetails.password
-            }, 1, null, journalIdStr);  // Pass null for whatsappNumber to indicate upload-status request
-
-            if (!screenshots || screenshots.length === 0) {
-                throw new Error('No screenshots were generated');
+            }, 1, null, journalIdStr);
+            
+            // Get the user session with the screenshots
+            const userSession = screenshotManager.sessions.get(journalIdStr);
+            
+            if (!userSession || !userSession.screenshots || userSession.screenshots.size === 0) {
+                console.log('No screenshots captured in session');
+                return { success: false, message: 'No screenshots captured' };
             }
-
-            // Process screenshots
-            const screenshotBuffers = await Promise.all(
-                screenshots.map(async filepath => {
-                    console.log(`Reading file: ${filepath}`);
-                    return fs.promises.readFile(filepath);
-                })
-            );
-
-            // Upload screenshots
+            
+            console.log(`Found ${userSession.screenshots.size} screenshots in session`);
+            
+            // Check which screenshots actually exist at this moment 
+            const screenshotBuffers = [];
+            
+            // Use a synchronous approach to check and immediately read each file
+            for (const filepath of userSession.screenshots) {
+                try {
+                    console.log(`Checking file existence: ${filepath}`);
+                    
+                    if (fs.existsSync(filepath)) {
+                        console.log(`File exists, reading content: ${filepath}`);
+                        // Read the file immediately to get its content before it might be deleted
+                        const buffer = fs.readFileSync(filepath);
+                        screenshotBuffers.push(buffer);
+                        localFilePaths.push(filepath); // Track for cleanup
+                        console.log(`Successfully read file: ${filepath}`);
+                    } else {
+                        console.log(`File does not exist, skipping: ${filepath}`);
+                    }
+                } catch (error) {
+                    console.error(`Error processing file ${filepath}:`, error);
+                }
+            }
+            
+            if (screenshotBuffers.length === 0) {
+                console.log('No valid screenshots could be read');
+                return { success: false, message: 'No valid screenshots could be read' };
+            }
+            
+            console.log(`Successfully read ${screenshotBuffers.length} screenshot buffers`);
+            
+            // Upload the screenshots
             const uploadResult = await this.uploadMultipleScreenshots(
                 journalId,
                 journalDetails.searchQuery,
                 screenshotBuffers
             );
-
+            
+            console.log(`Successfully uploaded ${uploadResult.count} screenshots`);
+            
+            // Clean up local files after successful upload
+            console.log(`Cleaning up ${localFilePaths.length} local files after upload`);
+            
+            for (const filepath of localFilePaths) {
+                try {
+                    fs.unlinkSync(filepath);
+                    console.log(`Successfully deleted file after upload: ${filepath}`);
+                } catch (err) {
+                    console.error(`Error deleting file ${filepath}: ${err.message}`);
+                }
+            }
+            
+            // Try to remove the directory if it's empty
+            try {
+                if (fs.existsSync(userSession.folder)) {
+                    const remainingFiles = fs.readdirSync(userSession.folder);
+                    if (remainingFiles.length === 0) {
+                        fs.rmdirSync(userSession.folder);
+                        console.log(`Successfully removed empty directory: ${userSession.folder}`);
+                    } else {
+                        console.log(`Directory not empty, skipping removal: ${userSession.folder}`);
+                        console.log(`${remainingFiles.length} files remaining: ${remainingFiles.join(', ')}`);
+                    }
+                }
+            } catch (cleanupError) {
+                console.error(`Error during directory cleanup: ${cleanupError.message}`);
+            }
+            
             return {
                 success: true,
-                journalId: journalDetails.journalId,
-                searchQuery: journalDetails.searchQuery,
-                screenshots: screenshots,
-                count: uploadResult.count
+                message: `Successfully processed and uploaded ${uploadResult.count} screenshots`,
+                data: uploadResult
             };
-
+            
         } catch (error) {
             console.error('Automation error:', error);
             throw error;
-        } finally {
-            // Clean up
-            try {
-                const journalFolder = path.join(tempFolder, journalIdStr);
-                if (fs.existsSync(journalFolder)) {
-                    fs.rmSync(journalFolder, { recursive: true, force: true });
-                }
-            } catch (cleanupError) {
-                console.error('Cleanup error:', cleanupError);
-            }
         }
     }
 };
